@@ -1,50 +1,523 @@
-.login {
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #fff;
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
-.card {
-  width: 260px;
-  padding: 20px;
-  border: 1px solid #e0e0e0;
-  border-radius: 0;
-  text-align: center;
-  background: white;
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #e0e5ec;
+    min-height: 100vh;
+    font-size: 13px;
 }
 
-.logo {
-  width: 28px;
-  margin-bottom: 12px;
+/* Wrapper for centering */
+.login-wrapper {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
 }
 
-h2 {
-  margin: 0 0 20px 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
+.login-container {
+    width: 100%;
+    max-width: 300px;
 }
 
-mat-form-field {
-  width: 100%;
-  margin-bottom: 12px;
-  font-size: 13px;
+.login-card {
+    background: #e0e5ec;
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: 
+        8px 8px 20px #bec3cf,
+        -8px -8px 20px #ffffff;
 }
 
-::ng-deep .mat-mdc-form-field-infix {
-  min-height: 36px !important;
-  padding: 8px 0 !important;
+.login-header {
+    text-align: center;
+    margin-bottom: 18px;
 }
 
-::ng-deep .mat-mdc-text-field-wrapper {
-  height: 36px !important;
+.neu-icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 10px;
+    background: #e0e5ec;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 
+        3px 3px 8px #bec3cf,
+        -3px -3px 8px #ffffff;
 }
 
-button {
-  width: 100%;
-  height: 32px;
-  font-size: 13px;
-  margin-top: 4px;
+.neu-icon svg {
+    width: 20px;
+    height: 20px;
+    color: #6c7293;
+}
+
+.login-header h2 {
+    color: #3d4468;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.login-header p {
+    color: #9499b7;
+    font-size: 11px;
+}
+
+.form-group {
+    margin-bottom: 14px;
+    position: relative;
+}
+
+.neu-input {
+    position: relative;
+    background: #e0e5ec;
+    border-radius: 10px;
+    box-shadow: 
+        inset 3px 3px 8px #bec3cf,
+        inset -3px -3px 8px #ffffff;
+    transition: all 0.2s ease;
+}
+
+.neu-input.focused {
+    box-shadow: 
+        inset 3px 3px 8px #bec3cf,
+        inset -3px -3px 8px #ffffff,
+        0 0 0 2px rgba(108, 114, 147, 0.1);
+}
+
+.neu-input input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 12px 14px;
+    padding-left: 40px;
+    color: #3d4468;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+}
+
+.neu-input input::placeholder {
+    color: transparent;
+}
+
+.neu-input input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.neu-input label {
+    position: absolute;
+    left: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9499b7;
+    font-size: 13px;
+    pointer-events: none;
+    transition: all 0.2s ease;
+    background: linear-gradient(transparent 50%, #e0e5ec 50%);
+    padding: 0 4px;
+    margin-left: -4px;
+    white-space: nowrap;
+}
+
+/* Always move label up when focused or has value */
+.neu-input input:focus + label,
+.neu-input input:not(:placeholder-shown) + label,
+.neu-input label.floating {
+    top: -10px;
+    font-size: 10px;
+    color: #6c7293;
+    transform: translateY(0);
+    font-weight: 500;
+}
+
+.input-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: #9499b7;
+}
+
+.input-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.password-group {
+    padding-right: 40px;
+}
+
+.neu-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #e0e5ec;
+    border: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9499b7;
+    box-shadow: 
+        2px 2px 6px #bec3cf,
+        -2px -2px 6px #ffffff;
+    transition: all 0.2s ease;
+}
+
+.neu-toggle:hover:not(:disabled) {
+    color: #6c7293;
+    transform: translateY(-50%) scale(1.05);
+}
+
+.neu-toggle:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.neu-toggle svg {
+    width: 12px;
+    height: 12px;
+}
+
+.eye-closed {
+    display: none;
+}
+
+.neu-toggle.show-password .eye-open {
+    display: none;
+}
+
+.neu-toggle.show-password .eye-closed {
+    display: block;
+}
+
+.form-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 16px 0 20px;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.remember-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.hidden-checkbox {
+    display: none;
+}
+
+.hidden-checkbox:disabled + .checkbox-label {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #6c7293;
+    font-size: 12px;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.neu-checkbox {
+    width: 16px;
+    height: 16px;
+    background: #e0e5ec;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 
+        2px 2px 5px #bec3cf,
+        -2px -2px 5px #ffffff;
+    transition: all 0.2s ease;
+}
+
+.hidden-checkbox:checked + .checkbox-label .neu-checkbox {
+    box-shadow: 
+        inset 1px 1px 3px #bec3cf,
+        inset -1px -1px 3px #ffffff;
+}
+
+.neu-checkbox svg {
+    width: 10px;
+    height: 10px;
+    color: #00c896;
+    opacity: 0;
+    transform: scale(0);
+    transition: all 0.2s ease;
+}
+
+.hidden-checkbox:checked + .checkbox-label .neu-checkbox svg {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.forgot-link {
+    color: #6c7293;
+    text-decoration: none;
+    font-size: 11px;
+    white-space: nowrap;
+    transition: color 0.2s ease;
+}
+
+.forgot-link:hover {
+    color: #3d4468;
+    text-decoration: underline;
+}
+
+/* Error states */
+.neu-input.error {
+    box-shadow: 
+        inset 3px 3px 8px #ffb8c4,
+        inset -3px -3px 8px #ffffff,
+        0 0 0 1.5px #ff3b5c;
+}
+
+.error-message {
+    color: #ff3b5c;
+    font-size: 10px;
+    margin-top: 4px;
+    margin-left: 12px;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: all 0.2s ease;
+    display: block;
+    min-height: 16px;
+}
+
+.error-message.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.error-message.main-error {
+    text-align: center;
+    margin: 16px 0;
+    font-size: 11px;
+    color: #ff3b5c;
+    background: rgba(255, 59, 92, 0.05);
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 3px solid #ff3b5c;
+    margin-left: 0;
+}
+
+.error-message.main-error .error-icon {
+    margin-right: 4px;
+    font-size: 12px;
+}
+
+/* Primary Button */
+.neu-button {
+    width: 100%;
+    background: #e0e5ec;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    color: #3d4468;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 
+        5px 5px 12px #bec3cf,
+        -5px -5px 12px #ffffff;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+    font-family: inherit;
+    margin-bottom: 12px;
+}
+
+.neu-button:last-child {
+    margin-bottom: 0;
+}
+
+.neu-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 
+        7px 7px 15px #bec3cf,
+        -7px -7px 15px #ffffff;
+}
+
+.neu-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 
+        inset 2px 2px 5px #bec3cf,
+        inset -2px -2px 5px #ffffff;
+}
+
+.neu-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: 
+        5px 5px 12px #bec3cf,
+        -5px -5px 12px #ffffff !important;
+}
+
+/* Secondary button */
+.secondary-btn {
+    background: #ff9800;
+    color: white;
+}
+
+.secondary-btn:hover:not(:disabled) {
+    background: #e68900;
+    color: white;
+}
+
+.secondary-btn .icon {
+    margin-right: 6px;
+    font-size: 12px;
+}
+
+.btn-text {
+    transition: opacity 0.2s ease;
+    display: block;
+}
+
+.btn-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.neu-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(190, 195, 207, 0.3);
+    border-top: 2px solid #6c7293;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.neu-button.loading .btn-text {
+    opacity: 0;
+}
+
+.neu-button.loading .btn-loader {
+    opacity: 1;
+}
+
+/* Success message */
+.success-message {
+    text-align: center;
+    padding: 20px 0;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+    display: none;
+}
+
+.success-message.show {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.success-message .neu-icon {
+    color: #00c896;
+    margin-bottom: 12px;
+    box-shadow: 
+        3px 3px 8px rgba(0, 200, 150, 0.2),
+        -3px -3px 8px #ffffff;
+}
+
+.success-message h3 {
+    color: #3d4468;
+    font-size: 1rem;
+    margin-bottom: 4px;
+}
+
+.success-message p {
+    color: #9499b7;
+    font-size: 11px;
+}
+
+/* Shake animation for errors */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.login-form.shake {
+    animation: shake 0.6s ease-in-out;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .login-wrapper {
+        padding: 10px;
+    }
+    
+    .login-card {
+        padding: 18px 16px;
+        border-radius: 14px;
+    }
+    
+    .neu-input input {
+        padding: 10px 12px;
+        padding-left: 36px;
+        font-size: 12px;
+    }
+    
+    .neu-input label {
+        left: 36px;
+        font-size: 12px;
+    }
+    
+    .form-options {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .forgot-link {
+        align-self: flex-end;
+    }
+    
+    .login-header h2 {
+        font-size: 1rem;
+    }
+    
+    .login-header p {
+        font-size: 10px;
+    }
+    
+    .neu-button {
+        font-size: 12px;
+        padding: 10px;
+    }
 }

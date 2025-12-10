@@ -1,0 +1,230 @@
+<div class="dashboard-container">
+    <div class="dashboard-card">
+        <!-- Header -->
+        <div class="dashboard-header">
+            <div class="header-left">
+                <div class="neu-icon small">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2>Raw Material Requisition</h2>
+                    <p class="subtitle">Manage your materials efficiently</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <!-- Logout Button -->
+                <button class="neu-icon-btn logout-btn" (click)="logout()" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+                
+                <button class="neu-icon-btn" (click)="toggleDarkMode()" [title]="isDarkMode ? 'Light Mode' : 'Dark Mode'">
+                    <i class="fas" [class.fa-sun]="isDarkMode" [class.fa-moon]="!isDarkMode"></i>
+                </button>
+                <button class="neu-icon-btn" (click)="printTable()" title="Print">
+                    <i class="fas fa-print"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="upload-section">
+            <div class="neu-input file-upload">
+                <input type="file" #fileInput (change)="handleFileUpload($event)" accept=".xlsx" hidden>
+                <button class="neu-btn secondary" (click)="fileInput.click()">
+                    <i class="fas fa-upload"></i> Upload Master File
+                </button>
+                <span class="file-name">{{uploadedFileName || 'No file selected'}}</span>
+                <button *ngIf="uploadedFileName" class="neu-btn danger small" (click)="clearFile()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="sync-controls">
+                <button class="neu-btn" [class.success]="isSyncEnabled" [class.secondary]="!isSyncEnabled" 
+                        (click)="toggleSync()" [title]="isSyncEnabled ? 'Disable Sync' : 'Enable Sync'">
+                    <i class="fas" [class.fa-cloud-upload-alt]="isSyncEnabled" [class.fa-cloud-slash]="!isSyncEnabled"></i>
+                    {{isSyncEnabled ? 'Synced' : 'Offline'}}
+                </button>
+                <button class="neu-btn info" (click)="restoreFromCloud()" title="Restore from cloud">
+                    <i class="fas fa-cloud-download-alt"></i> Restore
+                </button>
+                <span class="sync-status">{{getSyncStatusText()}}</span>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-section">
+            <div class="form-controls">
+                <select class="neu-input select" [(ngModel)]="selectedCategory" (ngModelChange)="onCategoryChange()" 
+                        [disabled]="!masterData.length">
+                    <option value="">-- Category --</option>
+                    <option *ngFor="let cat of categories" [value]="cat">{{cat}}</option>
+                </select>
+
+                <select class="neu-input select" [(ngModel)]="selectedSku" (ngModelChange)="onSkuChange()" 
+                        [disabled]="!selectedCategory">
+                    <option value="">-- SKU --</option>
+                    <option *ngFor="let sku of filteredSkus" [value]="sku.code">{{sku.name}}</option>
+                </select>
+
+                <input type="text" class="neu-input small" [value]="skuCode" placeholder="Code" readonly>
+
+                <button class="neu-btn primary" (click)="addSku()" [disabled]="!selectedSku">
+                    <i class="fas fa-plus"></i> Add
+                </button>
+
+                <input type="text" class="neu-input search" placeholder="Search..." [(ngModel)]="searchQuery" 
+                       (ngModelChange)="onSearch()">
+            </div>
+
+            <div class="action-controls">
+                <div class="export-dropdown" [class.active]="showExportDropdown">
+                    <button class="neu-btn success" (click)="toggleExportDropdown()" [disabled]="!requisitionRows.length">
+                        <i class="fas fa-download"></i> Export
+                    </button>
+                    <div class="export-options" *ngIf="showExportDropdown">
+                        <button (click)="exportData('all')">
+                            <i class="fas fa-file-excel"></i> All Data
+                        </button>
+                        <button (click)="exportData('pre-mix')">
+                            <i class="fas fa-flask"></i> Pre-mix Only
+                        </button>
+                        <button (click)="exportData('packaging')">
+                            <i class="fas fa-box"></i> Packaging Only
+                        </button>
+                        <button (click)="exportData('meat-veg')">
+                            <i class="fas fa-carrot"></i> Meat & Veg Only
+                        </button>
+                    </div>
+                </div>
+
+                <button class="neu-btn danger" (click)="clearAll()">
+                    <i class="fas fa-trash"></i> Clear All
+                </button>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+            <table class="neu-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th class="sortable" (click)="sortBy('skuCode')" [class.active]="sortField === 'skuCode'">
+                            Code
+                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'skuCode' && sortAsc" 
+                               [class.fa-sort-down]="sortField === 'skuCode' && !sortAsc"></i>
+                        </th>
+                        <th class="sortable" (click)="sortBy('skuName')" [class.active]="sortField === 'skuName'">
+                            SKU
+                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'skuName' && sortAsc" 
+                               [class.fa-sort-down]="sortField === 'skuName' && !sortAsc"></i>
+                        </th>
+                        <th class="sortable" (click)="sortBy('category')" [class.active]="sortField === 'category'">
+                            Category
+                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'category' && sortAsc" 
+                               [class.fa-sort-down]="sortField === 'category' && !sortAsc"></i>
+                        </th>
+                        <th>Qty</th>
+                        <th>Supplier</th>
+                        <th>Qty/Unit</th>
+                        <th>Unit</th>
+                        <th>Qty/Pack</th>
+                        <th>Pack Unit</th>
+                        <th>Mats</th>
+                        <th style="width: 40px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <ng-container *ngFor="let item of paginatedItems; let i = index">
+                        <tr>
+                            <td>
+                                <button class="neu-icon-btn small" (click)="toggleRow(i)">
+                                    <i class="fas" [class.fa-chevron-down]="!expandedRows.has(i)" 
+                                       [class.fa-chevron-up]="expandedRows.has(i)"></i>
+                                </button>
+                            </td>
+                            <td>{{item.skuCode}}</td>
+                            <td>{{item.skuName}}</td>
+                            <td>{{item.category}}</td>
+                            <td>
+                                <input type="number" class="neu-input tiny" min="1" max="99" 
+                                       [value]="item.qtyNeeded" (change)="updateQuantity(item, $event)">
+                            </td>
+                            <td>
+                                <input type="text" class="neu-input tiny" placeholder="Supplier" 
+                                       [value]="item.supplier" (change)="updateSupplier(item, $event)">
+                            </td>
+                            <td class="center">{{item.qtyPerUnit || '-'}}</td>
+                            <td class="center">{{item.unit || '-'}}</td>
+                            <td class="center">{{item.qtyPerPack || '-'}}</td>
+                            <td class="center">{{item.unit2 || '-'}}</td>
+                            <td class="center">{{item.materials.length || 0}}</td>
+                            <td>
+                                <button class="neu-icon-btn danger small" (click)="removeItem(i)">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr *ngIf="expandedRows.has(i)" class="expand-row">
+                            <td colspan="12">
+                                <div class="expand-content">
+                                    <div class="filter-row">
+                                        <span><i class="fas fa-filter"></i> Filter by Type:</span>
+                                        <select class="neu-input select small" (change)="filterMaterials(i, $event)">
+                                            <option value="">All Types</option>
+                                            <option *ngFor="let type of getUniqueTypes(item.materials)" [value]="type">
+                                                {{getTypeDisplayName(type)}}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <table class="inner-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Raw Material</th>
+                                                <th>Qty/Batch</th>
+                                                <th>Unit</th>
+                                                <th>Type</th>
+                                                <th>Total Req</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr *ngFor="let mat of getFilteredMaterials(i)" [attr.data-type]="mapTypeToFilter(mat.type)">
+                                                <td><strong>{{mat.name}}</strong></td>
+                                                <td>{{mat.qty}}</td>
+                                                <td>{{mat.unit}}</td>
+                                                <td>{{mat.type || '-'}}</td>
+                                                <td>{{calculateTotal(mat.qty, item.qtyNeeded)}} {{mat.unit}}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    </ng-container>
+                    <tr *ngIf="!paginatedItems.length">
+                        <td colspan="12" class="no-data">
+                            {{searchQuery ? 'No results found' : 'No items added yet'}}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination">
+            <button class="neu-btn" (click)="prevPage()" [disabled]="currentPage === 1">
+                <i class="fas fa-chevron-left"></i> Previous
+            </button>
+            <span class="page-info">{{currentPage}} / {{totalPages}}</span>
+            <button class="neu-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">
+                Next <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Snackbar Container -->
+<div class="snackbar-container" #snackbarContainer></div>
