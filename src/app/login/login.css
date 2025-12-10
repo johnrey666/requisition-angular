@@ -1,0 +1,50 @@
+.login {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
+.card {
+  width: 260px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 0;
+  text-align: center;
+  background: white;
+}
+
+.logo {
+  width: 28px;
+  margin-bottom: 12px;
+}
+
+h2 {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+mat-form-field {
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+::ng-deep .mat-mdc-form-field-infix {
+  min-height: 36px !important;
+  padding: 8px 0 !important;
+}
+
+::ng-deep .mat-mdc-text-field-wrapper {
+  height: 36px !important;
+}
+
+button {
+  width: 100%;
+  height: 32px;
+  font-size: 13px;
+  margin-top: 4px;
+}

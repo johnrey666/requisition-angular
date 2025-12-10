@@ -1,0 +1,20 @@
+<div class="login">
+  <mat-card class="card">
+    <img src="assets/logo.png" class="logo">
+    <h2>Sign In</h2>
+    
+    <form>
+      <mat-form-field appearance="outline">
+        <mat-icon matPrefix>mail</mat-icon>
+        <input matInput [(ngModel)]="email" name="email" placeholder="Email">
+      </mat-form-field>
+      
+      <mat-form-field appearance="outline">
+        <mat-icon matPrefix>lock</mat-icon>
+        <input matInput type="password" [(ngModel)]="password" name="password" placeholder="Password">
+      </mat-form-field>
+      
+      <button mat-flat-button color="primary">Login</button>
+    </form>
+  </mat-card>
+</div>
