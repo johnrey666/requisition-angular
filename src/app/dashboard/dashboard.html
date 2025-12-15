@@ -27,7 +27,7 @@
                 </button>
             </div>
         </div>
-
+    
         <!-- Upload Section -->
         <div class="upload-section">
             <div class="neu-input file-upload">
@@ -197,6 +197,7 @@
                                                 <td>{{mat.unit}}</td>
                                                 <td>{{mat.type || '-'}}</td>
                                                 <td>{{calculateTotal(mat.qty, item.qtyNeeded)}} {{mat.unit}}</td>
+                                                <td>{{calculateTotal(mat.qty, item.qtyNeeded)}} {{mat.unit}}</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -213,6 +214,8 @@
             </table>
         </div>
 
+   
+   
         <!-- Pagination -->
         <div class="pagination">
             <button class="neu-btn" (click)="prevPage()" [disabled]="currentPage === 1">
