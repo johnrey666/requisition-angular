@@ -1,195 +1,158 @@
-import { Component, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
-import { FormsModule } from '@angular/forms';
+import { Component, ChangeDetectorRef, NgZone } from '@angular/core';
+import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import { Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { AuthService } from '../../services/auth.service';
-
-interface LoginResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-}
+import { NgClass } from '@angular/common';
+import { SupabaseService } from '../services/supabase.service';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, ReactiveFormsModule, RouterModule],
   templateUrl: './login.html',
   styleUrls: ['./login.css']
 })
-export class LoginComponent implements OnInit {
-  email = '';
-  password = '';
-  rememberMe = false;
-  isLoading = false;
-  loginError = '';
-  showPassword = false;
-  
-  // Form validation states
-  emailError = '';
-  passwordError = '';
-  emailFocused = false;
-  passwordFocused = false;
-  successMessage = false;
+export class LoginComponent {
+  loginForm: FormGroup;
+  isLoading: boolean = false;
+  errorMessage: string = '';
+  successMessage: string = '';
+  showPassword: boolean = false;
 
   constructor(
-    private authService: AuthService,
-    private router: Router
-  ) {}
+    private fb: FormBuilder,
+    private router: Router,
+    private supabaseService: SupabaseService,
+    private cdRef: ChangeDetectorRef,
+    private ngZone: NgZone
+  ) {
+    this.loginForm = this.fb.group({
+      username: ['', [Validators.required, Validators.minLength(3)]],
+      password: ['', [Validators.required, Validators.minLength(1)]],
+      rememberMe: [false]
+    });
 
-  ngOnInit() {
-    const rememberedEmail = localStorage.getItem('rememberedEmail');
-    if (rememberedEmail) {
-      this.email = rememberedEmail;
-      this.rememberMe = true;
+    // Check for saved credentials
+    const savedUsername = localStorage.getItem('savedUsername');
+    if (savedUsername) {
+      this.loginForm.patchValue({
+        username: savedUsername,
+        rememberMe: true
+      });
     }
   }
 
-  async onSubmit(event: Event) {
-    event.preventDefault();
-    this.clearErrors();
-
-    if (!this.validateForm()) {
-      this.triggerShake();
+  async onSubmit(): Promise<void> {
+    if (this.loginForm.invalid) {
+      this.markFormGroupTouched(this.loginForm);
       return;
     }
 
-    this.isLoading = true;
-    this.loginError = '';
+    this.ngZone.run(() => {
+      this.isLoading = true;
+      this.errorMessage = '';
+      this.successMessage = '';
+    });
+
+    const { username, password, rememberMe } = this.loginForm.value;
 
     try {
-      const result = await this.authService.login(this.email, this.password) as LoginResponse;
+      console.log('Login attempt with:', username);
       
-      if (result.success) {
-        this.showSuccess();
-        
-        if (this.rememberMe) {
-          localStorage.setItem('rememberedEmail', this.email);
-        } else {
-          localStorage.removeItem('rememberedEmail');
+      const supabase = this.supabaseService.getClient();
+      
+      // Determine email to use
+      let email = username;
+      if (!username.includes('@')) {
+        email = `${username}@system.local`;
+      }
+      
+      console.log('Attempting login with email:', email);
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+
+      this.ngZone.run(() => {
+        if (error) {
+          console.error('Login error:', error);
+          this.isLoading = false;
+          this.errorMessage = 'Invalid username or password';
+          this.cdRef.detectChanges();
+          return;
         }
-        
-        setTimeout(() => {
-          this.router.navigate(['/dashboard']);
-        }, 2000);
-        
-      } else {
-        this.loginError = result.error || 'Invalid email or password.';
-        this.isLoading = false;
-        this.triggerShake();
-      }
+
+        if (data.user) {
+          // Login successful
+          if (rememberMe) {
+            localStorage.setItem('savedUsername', username);
+          } else {
+            localStorage.removeItem('savedUsername');
+          }
+
+          // Access user metadata safely
+          const metadata = data.user.user_metadata || {};
+          const fullName = metadata['full_name'] || metadata['fullName'] || username;
+          const role = metadata['role'] || 'user';
+
+          const userInfo = {
+            id: data.user.id,
+            email: data.user.email,
+            username: username,
+            full_name: fullName,
+            role: role
+          };
+
+          localStorage.setItem('currentUser', JSON.stringify(userInfo));
+          
+          this.isLoading = false;
+          this.successMessage = `Welcome back, ${fullName}!`;
+          this.cdRef.detectChanges();
+          
+          setTimeout(() => {
+            this.ngZone.run(() => {
+              this.router.navigate(['/dashboard']);
+            });
+          }, 1000);
+        } else {
+          this.isLoading = false;
+          this.errorMessage = 'Login failed. Please try again.';
+          this.cdRef.detectChanges();
+        }
+      });
+      
     } catch (error: any) {
-      this.loginError = 'An unexpected error occurred. Please try again.';
-      this.isLoading = false;
-      this.triggerShake();
+      console.error('Login exception:', error);
+      this.ngZone.run(() => {
+        this.isLoading = false;
+        this.errorMessage = 'An unexpected error occurred. Please try again.';
+        this.cdRef.detectChanges();
+      });
     }
   }
 
-  validateForm(): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    let isValid = true;
-    
-    if (!this.email) {
-      this.emailError = 'Email is required';
-      isValid = false;
-    } else if (!emailRegex.test(this.email)) {
-      this.emailError = 'Please enter a valid email';
-      isValid = false;
-    }
-
-    if (!this.password) {
-      this.passwordError = 'Password is required';
-      isValid = false;
-    } else if (this.password.length < 6) {
-      this.passwordError = 'At least 6 characters';
-      isValid = false;
-    }
-
-    return isValid;
-  }
-
-  clearErrors() {
-    this.emailError = '';
-    this.passwordError = '';
-    this.loginError = '';
-  }
-
-  clearFieldError(field: string) {
-    if (field === 'email') {
-      this.emailError = '';
-    } else if (field === 'password') {
-      this.passwordError = '';
-    }
-    this.loginError = '';
-  }
-
-  showSuccess() {
-    this.successMessage = true;
-    this.isLoading = false;
-  }
-
-  togglePassword() {
-    if (!this.isLoading) {
-      this.showPassword = !this.showPassword;
-    }
-  }
-
-  onEmailFocus() {
-    this.emailFocused = true;
-    this.emailError = '';
-  }
-
-  onEmailBlur() {
-    this.emailFocused = false;
-    if (this.email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(this.email)) {
-        this.emailError = 'Enter a valid email';
+  private markFormGroupTouched(formGroup: FormGroup): void {
+    Object.values(formGroup.controls).forEach(control => {
+      control.markAsTouched();
+      if (control instanceof FormGroup) {
+        this.markFormGroupTouched(control);
       }
-    }
+    });
   }
 
-  onPasswordFocus() {
-    this.passwordFocused = true;
-    this.passwordError = '';
+  togglePasswordVisibility(): void {
+    this.ngZone.run(() => {
+      this.showPassword = !this.showPassword;
+      this.cdRef.detectChanges();
+    });
   }
 
-  onPasswordBlur() {
-    this.passwordFocused = false;
-    if (this.password && this.password.length < 6) {
-      this.passwordError = 'At least 6 characters';
-    }
+  get usernameControl() {
+    return this.loginForm.get('username');
   }
 
-  onForgotPassword(event: Event) {
-    event.preventDefault();
-    if (!this.email) {
-      this.loginError = 'Please enter your email to reset password';
-      return;
-    }
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(this.email)) {
-      this.loginError = 'Please enter a valid email address';
-      return;
-    }
-    
-    alert(`Password reset link will be sent to: ${this.email}\n(This is a demo - no email will actually be sent)`);
-  }
-
-  quickAccess() {
-    if (!this.isLoading) {
-      this.router.navigate(['/dashboard']);
-    }
-  }
-
-  private triggerShake() {
-    const form = document.getElementById('loginForm');
-    if (form) {
-      form.classList.add('shake');
-      setTimeout(() => {
-        form.classList.remove('shake');
-      }, 600);
-    }
+  get passwordControl() {
+    return this.loginForm.get('password');
   }
 }

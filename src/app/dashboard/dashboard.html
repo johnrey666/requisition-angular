@@ -1,233 +1,360 @@
 <div class="dashboard-container">
-    <div class="dashboard-card">
-        <!-- Header -->
-        <div class="dashboard-header">
-            <div class="header-left">
-                <div class="neu-icon small">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-                    </svg>
-                </div>
-                <div>
-                    <h2>Raw Material Requisition</h2>
-                    <p class="subtitle">Manage your materials efficiently</p>
-                </div>
-            </div>
-            <div class="header-actions">
-                <!-- Logout Button -->
-                <button class="neu-icon-btn logout-btn" (click)="logout()" title="Logout">
-                    <i class="fas fa-sign-out-alt"></i>
-                </button>
-                
-                <button class="neu-icon-btn" (click)="toggleDarkMode()" [title]="isDarkMode ? 'Light Mode' : 'Dark Mode'">
-                    <i class="fas" [class.fa-sun]="isDarkMode" [class.fa-moon]="!isDarkMode"></i>
-                </button>
-                <button class="neu-icon-btn" (click)="printTable()" title="Print">
-                    <i class="fas fa-print"></i>
-                </button>
-            </div>
-        </div>
-    
-        <!-- Upload Section -->
-        <div class="upload-section">
-            <div class="neu-input file-upload">
-                <input type="file" #fileInput (change)="handleFileUpload($event)" accept=".xlsx" hidden>
-                <button class="neu-btn secondary" (click)="fileInput.click()">
-                    <i class="fas fa-upload"></i> Upload Master File
-                </button>
-                <span class="file-name">{{uploadedFileName || 'No file selected'}}</span>
-                <button *ngIf="uploadedFileName" class="neu-btn danger small" (click)="clearFile()">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-
-            <div class="sync-controls">
-                <button class="neu-btn" [class.success]="isSyncEnabled" [class.secondary]="!isSyncEnabled" 
-                        (click)="toggleSync()" [title]="isSyncEnabled ? 'Disable Sync' : 'Enable Sync'">
-                    <i class="fas" [class.fa-cloud-upload-alt]="isSyncEnabled" [class.fa-cloud-slash]="!isSyncEnabled"></i>
-                    {{isSyncEnabled ? 'Synced' : 'Offline'}}
-                </button>
-                <button class="neu-btn info" (click)="restoreFromCloud()" title="Restore from cloud">
-                    <i class="fas fa-cloud-download-alt"></i> Restore
-                </button>
-                <span class="sync-status">{{getSyncStatusText()}}</span>
-            </div>
-        </div>
-
-        <!-- Controls -->
-        <div class="controls-section">
-            <div class="form-controls">
-                <select class="neu-input select" [(ngModel)]="selectedCategory" (ngModelChange)="onCategoryChange()" 
-                        [disabled]="!masterData.length">
-                    <option value="">-- Category --</option>
-                    <option *ngFor="let cat of categories" [value]="cat">{{cat}}</option>
-                </select>
-
-                <select class="neu-input select" [(ngModel)]="selectedSku" (ngModelChange)="onSkuChange()" 
-                        [disabled]="!selectedCategory">
-                    <option value="">-- SKU --</option>
-                    <option *ngFor="let sku of filteredSkus" [value]="sku.code">{{sku.name}}</option>
-                </select>
-
-                <input type="text" class="neu-input small" [value]="skuCode" placeholder="Code" readonly>
-
-                <button class="neu-btn primary" (click)="addSku()" [disabled]="!selectedSku">
-                    <i class="fas fa-plus"></i> Add
-                </button>
-
-                <input type="text" class="neu-input search" placeholder="Search..." [(ngModel)]="searchQuery" 
-                       (ngModelChange)="onSearch()">
-            </div>
-
-            <div class="action-controls">
-                <div class="export-dropdown" [class.active]="showExportDropdown">
-                    <button class="neu-btn success" (click)="toggleExportDropdown()" [disabled]="!requisitionRows.length">
-                        <i class="fas fa-download"></i> Export
-                    </button>
-                    <div class="export-options" *ngIf="showExportDropdown">
-                        <button (click)="exportData('all')">
-                            <i class="fas fa-file-excel"></i> All Data
-                        </button>
-                        <button (click)="exportData('pre-mix')">
-                            <i class="fas fa-flask"></i> Pre-mix Only
-                        </button>
-                        <button (click)="exportData('packaging')">
-                            <i class="fas fa-box"></i> Packaging Only
-                        </button>
-                        <button (click)="exportData('meat-veg')">
-                            <i class="fas fa-carrot"></i> Meat & Veg Only
-                        </button>
-                    </div>
-                </div>
-
-                <button class="neu-btn danger" (click)="clearAll()">
-                    <i class="fas fa-trash"></i> Clear All
-                </button>
-            </div>
-        </div>
-
-        <!-- Table -->
-        <div class="table-container">
-            <table class="neu-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"></th>
-                        <th class="sortable" (click)="sortBy('skuCode')" [class.active]="sortField === 'skuCode'">
-                            Code
-                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'skuCode' && sortAsc" 
-                               [class.fa-sort-down]="sortField === 'skuCode' && !sortAsc"></i>
-                        </th>
-                        <th class="sortable" (click)="sortBy('skuName')" [class.active]="sortField === 'skuName'">
-                            SKU
-                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'skuName' && sortAsc" 
-                               [class.fa-sort-down]="sortField === 'skuName' && !sortAsc"></i>
-                        </th>
-                        <th class="sortable" (click)="sortBy('category')" [class.active]="sortField === 'category'">
-                            Category
-                            <i class="fas sort-icon" [class.fa-sort-up]="sortField === 'category' && sortAsc" 
-                               [class.fa-sort-down]="sortField === 'category' && !sortAsc"></i>
-                        </th>
-                        <th>Qty</th>
-                        <th>Supplier</th>
-                        <th>Qty/Unit</th>
-                        <th>Unit</th>
-                        <th>Qty/Pack</th>
-                        <th>Pack Unit</th>
-                        <th>Mats</th>
-                        <th style="width: 40px;"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <ng-container *ngFor="let item of paginatedItems; let i = index">
-                        <tr>
-                            <td>
-                                <button class="neu-icon-btn small" (click)="toggleRow(i)">
-                                    <i class="fas" [class.fa-chevron-down]="!expandedRows.has(i)" 
-                                       [class.fa-chevron-up]="expandedRows.has(i)"></i>
-                                </button>
-                            </td>
-                            <td>{{item.skuCode}}</td>
-                            <td>{{item.skuName}}</td>
-                            <td>{{item.category}}</td>
-                            <td>
-                                <input type="number" class="neu-input tiny" min="1" max="99" 
-                                       [value]="item.qtyNeeded" (change)="updateQuantity(item, $event)">
-                            </td>
-                            <td>
-                                <input type="text" class="neu-input tiny" placeholder="Supplier" 
-                                       [value]="item.supplier" (change)="updateSupplier(item, $event)">
-                            </td>
-                            <td class="center">{{item.qtyPerUnit || '-'}}</td>
-                            <td class="center">{{item.unit || '-'}}</td>
-                            <td class="center">{{item.qtyPerPack || '-'}}</td>
-                            <td class="center">{{item.unit2 || '-'}}</td>
-                            <td class="center">{{item.materials.length || 0}}</td>
-                            <td>
-                                <button class="neu-icon-btn danger small" (click)="removeItem(i)">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </td>
-                        </tr>
-                        <tr *ngIf="expandedRows.has(i)" class="expand-row">
-                            <td colspan="12">
-                                <div class="expand-content">
-                                    <div class="filter-row">
-                                        <span><i class="fas fa-filter"></i> Filter by Type:</span>
-                                        <select class="neu-input select small" (change)="filterMaterials(i, $event)">
-                                            <option value="">All Types</option>
-                                            <option *ngFor="let type of getUniqueTypes(item.materials)" [value]="type">
-                                                {{getTypeDisplayName(type)}}
-                                            </option>
-                                        </select>
-                                    </div>
-                                    <table class="inner-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Raw Material</th>
-                                                <th>Qty/Batch</th>
-                                                <th>Unit</th>
-                                                <th>Type</th>
-                                                <th>Total Req</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr *ngFor="let mat of getFilteredMaterials(i)" [attr.data-type]="mapTypeToFilter(mat.type)">
-                                                <td><strong>{{mat.name}}</strong></td>
-                                                <td>{{mat.qty}}</td>
-                                                <td>{{mat.unit}}</td>
-                                                <td>{{mat.type || '-'}}</td>
-                                                <td>{{calculateTotal(mat.qty, item.qtyNeeded)}} {{mat.unit}}</td>
-                                                <td>{{calculateTotal(mat.qty, item.qtyNeeded)}} {{mat.unit}}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </td>
-                        </tr>
-                    </ng-container>
-                    <tr *ngIf="!paginatedItems.length">
-                        <td colspan="12" class="no-data">
-                            {{searchQuery ? 'No results found' : 'No items added yet'}}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-   
-   
-        <!-- Pagination -->
-        <div class="pagination">
-            <button class="neu-btn" (click)="prevPage()" [disabled]="currentPage === 1">
-                <i class="fas fa-chevron-left"></i> Previous
-            </button>
-            <span class="page-info">{{currentPage}} / {{totalPages}}</span>
-            <button class="neu-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">
-                Next <i class="fas fa-chevron-right"></i>
-            </button>
-        </div>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h2><i class="fas fa-industry"></i> Raw Material E-Portal</h2>
+      <div class="user-info">
+        <span class="user-role" [ngClass]="{'admin': isAdmin, 'user': !isAdmin}">
+          <i class="fas" [ngClass]="isAdmin ? 'fa-user-shield' : 'fa-user'"></i>
+          {{ currentUser?.name || currentUser?.username }}
+          <span class="role-badge">{{ isAdmin ? 'Admin' : 'User' }}</span>
+        </span>
+      </div>
     </div>
-</div>
+    
+    <div class="header-actions">
+      <button id="darkModeBtn" (click)="toggleDarkMode()" [title]="darkMode ? 'Light Mode' : 'Dark Mode'">
+        <i class="fas" [ngClass]="darkMode ? 'fa-sun' : 'fa-moon'"></i>
+      </button>
+      <button id="printBtn" (click)="window.print()" title="Print Table">
+        <i class="fas fa-print"></i>
+      </button>
+      <button id="logoutBtn" (click)="logout()" title="Logout">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </button>
+    </div>
+  </div>
 
-<!-- Snackbar Container -->
-<div class="snackbar-container" #snackbarContainer></div>
+  <!-- Upload Section -->
+  <div class="upload-section">
+    <div class="upload-box">
+      <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls" 
+             (change)="onFileUpload($event)" style="display: none">
+      <button class="btn-upload" (click)="masterFileInput.click()">
+        <i class="fas fa-upload"></i> Upload Master File
+      </button>
+      <span class="upload-status" [ngClass]="{'has-file': uploadedFileName}">
+        {{ uploadedFileName || 'No file uploaded' }}
+      </span>
+      @if (uploadedFileName) {
+        <button class="btn-clear-file" (click)="clearFile()" title="Clear uploaded file">
+          <i class="fas fa-times"></i>
+        </button>
+      }
+
+      <!-- Cloud Sync Section -->
+      <div class="cloud-section">
+        <button id="configBtn" title="View Config">
+          <i class="fas fa-cog"></i>
+        </button>
+        
+        <button id="syncBtn" (click)="toggleSync()" 
+                [ngClass]="{'synced': isSyncEnabled, 'offline': !isSyncEnabled}"
+                [title]="isSyncEnabled ? 'Disable cloud sync' : 'Enable cloud sync'">
+          <i class="fas" [ngClass]="isSyncEnabled ? 'fa-cloud-upload-alt' : 'fa-cloud-slash'"></i>
+          <span>{{ isSyncEnabled ? 'Synced' : 'Offline' }}</span>
+        </button>
+        
+        <button id="restoreBtn" (click)="restoreFromCloud()" title="Restore from cloud">
+          <i class="fas fa-cloud-download-alt"></i>
+          <span>Restore</span>
+        </button>
+        
+        <span class="sync-status">{{ syncStatus }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls Section -->
+  <div class="controls-section">
+    <!-- Form Controls -->
+    <div class="form-controls">
+      <div class="form-row">
+        <select id="categorySelect" formControlName="category" (change)="onCategoryChange()" 
+                [disabled]="!uploadedFileName" class="form-select">
+          <option value="">-- Category --</option>
+          @for (category of categories; track category) {
+            <option [value]="category">{{ category }}</option>
+          }
+        </select>
+        
+        <select id="skuSelect" formControlName="sku" (change)="onSkuChange()" 
+                [disabled]="!requisitionForm.get('category')?.value" class="form-select">
+          <option value="">-- SKU --</option>
+          @for (sku of skus; track sku.code) {
+            <option [value]="sku.name">{{ sku.name }}</option>
+          }
+        </select>
+        
+        <input type="text" id="skuCodeDisplay" formControlName="skuCode" placeholder="Code" readonly class="form-input">
+        
+        <input type="number" id="qtyInput" formControlName="qtyNeeded" min="1" max="99" 
+               placeholder="Qty" class="form-input qty-input">
+        
+        <input type="text" id="supplierInput" formControlName="supplier" placeholder="Supplier" class="form-input">
+        
+        <button id="addBtn" (click)="addRequisition()" 
+                [disabled]="requisitionForm.invalid" class="btn-primary">
+          <i class="fas fa-plus"></i> Add
+        </button>
+      </div>
+    </div>
+
+    <!-- Action Controls -->
+    <div class="action-controls">
+      <div class="search-box">
+        <i class="fas fa-search"></i>
+        <input type="text" id="searchInput" [(ngModel)]="searchQuery" 
+               (ngModelChange)="onSearch()" placeholder="Search Code/SKU/Category..." 
+               class="search-input">
+      </div>
+      
+      <!-- Export Dropdown -->
+      <div class="export-dropdown">
+        <button class="btn-export" (click)="toggleExportDropdown()" 
+                [disabled]="requisitionItems.length === 0">
+          <i class="fas fa-download"></i> Export
+        </button>
+        
+        @if (isExportDropdownOpen) {
+          <div class="export-options">
+            <button (click)="exportData('all')">
+              <i class="fas fa-file-excel"></i> Export All Data
+            </button>
+            <button (click)="exportData('pre-mix')">
+              <i class="fas fa-flask"></i> Export Pre-mix Only
+            </button>
+            <button (click)="exportData('packaging')">
+              <i class="fas fa-box"></i> Export Packaging Only
+            </button>
+            <button (click)="exportData('meat-veg')">
+              <i class="fas fa-carrot"></i> Export Meat & Vegetables Only
+            </button>
+          </div>
+        }
+      </div>
+      
+      <button id="clearBtn" (click)="clearAll()" class="btn-danger">
+        <i class="fas fa-trash"></i> Clear All
+      </button>
+    </div>
+  </div>
+
+  <!-- Cutoff Schedule Indicator -->
+  @if (!isSubmissionAllowed) {
+    <div class="cutoff-warning">
+      <i class="fas fa-clock"></i>
+      <span>Submission is currently disabled. Next submission window: Tomorrow 08:00 AM</span>
+    </div>
+  }
+
+  <!-- Main Table -->
+  <div class="table-container">
+    <table class="main-table">
+      <thead>
+        <tr>
+          <th style="width:40px;"></th>
+          <th class="sortable" (click)="sortBy('skuCode')" [ngClass]="{'sort-asc': sortField === 'skuCode' && sortAsc, 'sort-desc': sortField === 'skuCode' && !sortAsc}">
+            Code <i class="fas fa-sort sort-icon"></i>
+          </th>
+          <th class="sortable" (click)="sortBy('skuName')" [ngClass]="{'sort-asc': sortField === 'skuName' && sortAsc, 'sort-desc': sortField === 'skuName' && !sortAsc}">
+            SKU <i class="fas fa-sort sort-icon"></i>
+          </th>
+          <th class="sortable" (click)="sortBy('category')" [ngClass]="{'sort-asc': sortField === 'category' && sortAsc, 'sort-desc': sortField === 'category' && !sortAsc}">
+            Category <i class="fas fa-sort sort-icon"></i>
+          </th>
+          <th style="width:60px;">Qty</th>
+          <th style="width:140px;">Supplier</th>
+          <th style="width:90px;">Qty/Unit</th>
+          <th style="width:70px;">Unit</th>
+          <th style="width:90px;">Qty/Pack</th>
+          <th style="width:70px;">Pack Unit</th>
+          <th style="width:60px;">Mats</th>
+          <th style="width:120px;">Status</th>
+          <th style="width:80px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (filteredItems.length === 0) {
+          <tr class="no-data">
+            <td colspan="13">
+              <div class="empty-state">
+                <i class="fas fa-inbox"></i>
+                <p>{{ searchQuery ? 'No results found' : 'No requisitions added yet' }}</p>
+              </div>
+            </td>
+          </tr>
+        }
+        
+        @for (item of filteredItems; track item.id; let i = $index) {
+          <tr [ngClass]="{'expanded': expandedRows.has(item.id)}">
+            <td>
+              <button class="toggle-btn" (click)="toggleRow(item.id)" 
+                      [title]="expandedRows.has(item.id) ? 'Collapse' : 'Expand'">
+                <i class="fas" [ngClass]="expandedRows.has(item.id) ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+              </button>
+            </td>
+            <td><strong>{{ item.skuCode }}</strong></td>
+            <td>{{ item.skuName }}</td>
+            <td><span class="category-badge">{{ item.category }}</span></td>
+            <td>
+              <input type="number" class="qty-input" min="1" max="99" 
+                     [value]="item.qtyNeeded" 
+                     (change)="updateQty(item.id, $any($event.target).value)">
+            </td>
+            <td>
+              <input type="text" class="supplier-input" 
+                     [value]="item.supplier" 
+                     (change)="updateSupplier(item.id, $any($event.target).value)"
+                     placeholder="Enter supplier">
+            </td>
+            <td class="numeric">{{ item.qtyPerUnit || '-' }}</td>
+            <td>{{ item.unit || '-' }}</td>
+            <td class="numeric">{{ item.qtyPerPack || '-' }}</td>
+            <td>{{ item.unit2 || '-' }}</td>
+            <td class="numeric">{{ item.materials.length }}</td>
+            <td>
+              <span class="status-badge" [ngClass]="item.status" 
+                    [style.background-color]="getStatusColor(item.status)">
+                <i class="fas" [ngClass]="getStatusIcon(item.status)"></i>
+                {{ item.status | titlecase }}
+              </span>
+            </td>
+            <td>
+              <div class="action-buttons">
+                @if (item.status === 'draft') {
+                  <button class="btn-submit" (click)="submitRequisition(item.id)" 
+                          [disabled]="!isSubmissionAllowed" title="Submit for approval">
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                }
+                
+                @if (isAdmin && item.status === 'submitted') {
+                  <button class="btn-approve" (click)="reviewRequisition(item.id, true)" title="Approve">
+                    <i class="fas fa-check"></i>
+                  </button>
+                  <button class="btn-reject" (click)="reviewRequisition(item.id, false)" title="Reject">
+                    <i class="fas fa-times"></i>
+                  </button>
+                }
+                
+                <button class="btn-delete" (click)="deleteItem(item.id)" title="Delete">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Expanded Row (Materials Details) -->
+          @if (expandedRows.has(item.id)) {
+            <tr class="expanded-row">
+              <td colspan="13">
+                <div class="materials-details">
+                  <div class="details-header">
+                    <h4><i class="fas fa-list"></i> Raw Materials for {{ item.skuName }}</h4>
+                    <div class="type-filter">
+                      <select class="type-select" (change)="filterMaterials($event, item.id)">
+                        <option value="">All Types</option>
+                        <option value="pre-mix">Pre-mix</option>
+                        <option value="packaging">Packaging</option>
+                        <option value="meat-veg">Meat & Vegetables</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <table class="materials-table">
+                    <thead>
+                      <tr>
+                        <th>Raw Material</th>
+                        <th>Qty/Batch</th>
+                        <th>Unit</th>
+                        <th>Type</th>
+                        <th>Required Qty</th>
+                        <th>Served Qty</th>
+                        <th>Remarks</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (material of item.materials; track $index) {
+                        <tr [ngClass]="{'unserved': material.isUnserved}">
+                          <td><strong>{{ material.name }}</strong></td>
+                          <td class="numeric">{{ material.qty }}</td>
+                          <td>{{ material.unit }}</td>
+                          <td>
+                            <span class="type-badge">{{ material.type || 'N/A' }}</span>
+                          </td>
+                          <td class="numeric">{{ material.requiredQty }} {{ material.unit }}</td>
+                          <td>
+                            <input type="number" class="served-input" 
+                                   [value]="material.servedQty || 0"
+                                   min="0" [max]="material.requiredQty"
+                                   (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)">
+                          </td>
+                          <td>
+                            <input type="text" class="remarks-input" 
+                                   [value]="material.remarks || ''"
+                                   placeholder="Remarks"
+                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)">
+                          </td>
+                          <td>
+                            @if (material.isUnserved) {
+                              <span class="unserved-badge">
+                                <i class="fas fa-exclamation-triangle"></i> Unserved
+                              </span>
+                            } @else if (material.servedQty && material.servedQty > 0) {
+                              <span class="served-badge">
+                                <i class="fas fa-check"></i> Served
+                                @if (material.servedDate) {
+                                  <small>{{ material.servedDate | date:'shortDate' }}</small>
+                                }
+                              </span>
+                            } @else {
+                              <span class="pending-badge">
+                                <i class="fas fa-clock"></i> Pending
+                              </span>
+                            }
+                          </td>
+                          <td>
+                            <button class="btn-save" 
+                                    (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)"
+                                    title="Save changes">
+                              <i class="fas fa-save"></i>
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                    @if (item.remarks) {
+                      <tfoot>
+                        <tr>
+                          <td colspan="9" class="requisition-remarks">
+                            <strong><i class="fas fa-comment"></i> Requisition Remarks:</strong> {{ item.remarks }}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    }
+                  </table>
+                </div>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  @if (requisitionItems.length > itemsPerPage) {
+    <div class="pagination">
+      <button (click)="changePage(-1)" [disabled]="currentPage === 1">
+        <i class="fas fa-chevron-left"></i> Previous
+      </button>
+      <span class="page-info">Page {{ currentPage }} of {{ totalPages }}</span>
+      <button (click)="changePage(1)" [disabled]="currentPage === totalPages">
+        Next <i class="fas fa-chevron-right"></i>
+      </button>
+    </div>
+  }
+</div>

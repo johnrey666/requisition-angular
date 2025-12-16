@@ -1,11 +1,51 @@
-import { Component, OnInit, ElementRef, ViewChild, Renderer2 } from '@angular/core';
+import { Component, OnInit, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { FormBuilder, FormGroup, Validators, ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { NgClass } from '@angular/common';
 import * as XLSX from 'xlsx';
-import { AuthService } from '../../services/auth.service';
 
-interface MasterData {
+// Remove the file-saver import since we have type conflicts
+// import { saveAs } from 'file-saver';
+
+// Declare saveAs function globally
+declare function saveAs(data: any, filename?: string, options?: any): void;
+
+interface RawMaterial {
+  name: string;
+  qty: number;
+  unit: string;
+  type: string;
+  requiredQty: number;
+  servedQty?: number;
+  remarks?: string;
+  servedDate?: Date;
+  isUnserved?: boolean;
+}
+
+interface RequisitionItem {
+  id: string;
+  skuCode: string;
+  skuName: string;
+  category: string;
+  qtyNeeded: number;
+  supplier: string;
+  qtyPerUnit: string;
+  unit: string;
+  qtyPerPack: string;
+  unit2: string;
+  materials: RawMaterial[];
+  status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  submittedBy?: string;
+  submittedDate?: Date;
+  reviewedBy?: string;
+  reviewedDate?: Date;
+  approver?: string;
+  approvedDate?: Date;
+  remarks?: string;
+}
+
+interface MasterDataRow {
   CATEGORY: string;
   'SKU CODE': string;
   SKU: string;
@@ -19,183 +59,237 @@ interface MasterData {
   TYPE: string;
 }
 
-interface Material {
+interface CutoffSchedule {
+  id: string;
   name: string;
-  qty: string;
-  unit: string;
-  type: string;
-}
-
-interface RequisitionRow {
-  skuCode: string;
-  skuName: string;
-  category: string;
-  qtyNeeded: number;
-  supplier: string;
-  qtyPerUnit: string;
-  unit: string;
-  qtyPerPack: string;
-  unit2: string;
-  materials: Material[];
-  filteredMaterials?: Material[];
-}
-
-interface SkuOption {
-  code: string;
-  name: string;
-}
-
-interface ColumnMap {
-  category: number;
-  skuCode: number;
-  skuName: number;
-  qtyPerUnit: number;
-  unit: number;
-  qtyPerPack: number;
-  unit2: number;
-  raw: number;
-  qtyBatch: number;
-  unit4: number;
-  type: number;
+  startTime: string;
+  endTime: string;
+  days: number[];
+  isActive: boolean;
 }
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, ReactiveFormsModule, FormsModule, RouterModule, NgClass],
   templateUrl: './dashboard.html',
   styleUrls: ['./dashboard.css']
 })
 export class DashboardComponent implements OnInit {
-  // Data
-  masterData: MasterData[] = [];
-  requisitionRows: RequisitionRow[] = [];
-  categories: string[] = [];
-  filteredSkus: SkuOption[] = [];
-  paginatedItems: RequisitionRow[] = [];
+  @ViewChild('masterFileInput') masterFileInput!: ElementRef;
   
-  // Filters & Selection
-  selectedCategory: string = '';
-  selectedSku: string = '';
-  skuCode: string = '';
-  searchQuery: string = '';
-  sortField: string | null = null;
-  sortAsc: boolean = true;
+  // Forms
+  requisitionForm: FormGroup;
+  materialForm: FormGroup;
+  
+  // Data
+  masterData: MasterDataRow[] = [];
+  requisitionItems: RequisitionItem[] = [];
+  filteredItems: RequisitionItem[] = [];
+  categories: string[] = [];
+  skus: { name: string; code: string }[] = [];
   
   // UI State
-  expandedRows = new Set<number>();
-  isDarkMode: boolean = false;
-  isSyncEnabled: boolean = false;
-  showExportDropdown: boolean = false;
-  
-  // Pagination
+  uploadedFileName: string = '';
+  searchQuery: string = '';
   currentPage: number = 1;
   itemsPerPage: number = 8;
   totalPages: number = 1;
+  expandedRows: Set<string> = new Set();
+  darkMode: boolean = false;
+  isExportDropdownOpen: boolean = false;
   
-  // File
-  uploadedFileName: string = '';
+  // Sorting
+  sortField: string = '';
+  sortAsc: boolean = true;
+  
+  // User info
+  currentUser: any;
+  isAdmin: boolean = false;
   
   // Cloud Sync
-  private readonly SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbztJ9Jo77aonmowokGYUbHWY4cNWXH0_Z2qmIhxvFV1fqykCFcGKrWcQ7PCj-flsutRvQ/exec";
-  private lastSyncTime: string | null = null;
-  private syncInProgress: boolean = false;
+  isSyncEnabled: boolean = false;
+  syncStatus: string = 'Local only';
   
-  @ViewChild('snackbarContainer', { static: false }) snackbarContainer!: ElementRef;
+  // Cutoff Schedules
+  cutoffSchedules: CutoffSchedule[] = [
+    {
+      id: '1',
+      name: 'Morning Shift',
+      startTime: '08:00',
+      endTime: '12:00',
+      days: [1, 2, 3, 4, 5], // Monday to Friday
+      isActive: true
+    },
+    {
+      id: '2',
+      name: 'Afternoon Shift',
+      startTime: '13:00',
+      endTime: '17:00',
+      days: [1, 2, 3, 4, 5],
+      isActive: true
+    }
+  ];
+  isSubmissionAllowed: boolean = true;
   
   // Type mapping
-  private typeMapping: Record<string, string[]> = {
+  typeMapping = {
     'meat-veg': ['raw', 'meat', 'chicken', 'pork', 'beef', 'fish', 'veggies', 'vegetables', 'vegetable', 'veg'],
     'pre-mix': ['pre-mix', 'premix'],
     'packaging': ['packaging']
   };
 
   constructor(
-    private renderer: Renderer2,
-    private authService: AuthService,
+    private fb: FormBuilder,
     private router: Router
-  ) {}
+  ) {
+    this.requisitionForm = this.fb.group({
+      category: ['', Validators.required],
+      sku: ['', Validators.required],
+      skuCode: [{ value: '', disabled: true }],
+      qtyNeeded: [1, [Validators.required, Validators.min(1), Validators.max(99)]],
+      supplier: ['', Validators.required]
+    });
 
-  ngOnInit() {
+    this.materialForm = this.fb.group({
+      servedQty: ['', Validators.required],
+      remarks: ['']
+    });
+  }
+
+  ngOnInit(): void {
+    // Load user info
+    const savedUser = localStorage.getItem('currentUser');
+    this.currentUser = savedUser ? JSON.parse(savedUser) : null;
+    this.isAdmin = this.currentUser?.role === 'admin';
+    
+    if (!this.currentUser) {
+      this.router.navigate(['/login']);
+      return;
+    }
+    
+    // Load saved data
     this.loadFromLocalStorage();
+    
+    // Load dark mode preference
+    this.darkMode = localStorage.getItem('darkMode') === 'true';
+    this.updateDarkMode();
+    
+    // Load sync config
     this.loadSyncConfig();
-    this.setupTheme();
-    this.renderPage();
+    
+    // Check cutoff schedule
+    this.checkCutoffSchedule();
   }
 
-  // Theme & UI
-  setupTheme() {
-    this.isDarkMode = localStorage.getItem('darkMode') === 'true';
-    if (this.isDarkMode) {
-      document.body.classList.add('dark-mode');
+  // Close dropdown when clicking outside
+  @HostListener('document:click', ['$event'])
+  clickOutside(event: Event) {
+    if (!(event.target as HTMLElement).closest('.export-dropdown')) {
+      this.isExportDropdownOpen = false;
     }
   }
 
-  toggleDarkMode() {
-    this.isDarkMode = !this.isDarkMode;
-    if (this.isDarkMode) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
-    }
-    localStorage.setItem('darkMode', this.isDarkMode.toString());
-  }
-
-  // Logout
-  async logout() {
-    if (confirm('Are you sure you want to logout?')) {
-      try {
-        await this.authService.logout();
-        this.showSnackbar('Logged out successfully', 'success');
-        
-        // Clear dashboard data from local storage
-        localStorage.removeItem('requisitionData');
-        
-        // Redirect to login after a short delay
-        setTimeout(() => {
-          this.router.navigate(['/login']);
-        }, 1500);
-      } catch (error) {
-        console.error('Logout error:', error);
-        this.showSnackbar('Logout failed. Please try again.', 'error');
+  private loadFromLocalStorage(): void {
+    const savedData = localStorage.getItem('requisitionData');
+    if (savedData) {
+      const data = JSON.parse(savedData);
+      this.requisitionItems = data.items || [];
+      this.masterData = data.masterData || [];
+      this.uploadedFileName = data.fileName || '';
+      
+      if (this.masterData.length) {
+        this.populateCategories();
       }
+      
+      this.filterAndPaginate();
     }
   }
 
-  // File Handling
-  handleFileUpload(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+  private saveToLocalStorage(): void {
+    const data = {
+      items: this.requisitionItems,
+      masterData: this.masterData,
+      fileName: this.uploadedFileName
+    };
+    localStorage.setItem('requisitionData', JSON.stringify(data));
+  }
+
+  private loadSyncConfig(): void {
+    this.isSyncEnabled = localStorage.getItem('syncEnabled') === 'true';
+    this.updateSyncUI();
+  }
+
+  private updateSyncUI(): void {
+    if (this.isSyncEnabled) {
+      this.syncStatus = 'Auto-sync ON';
+    } else {
+      this.syncStatus = 'Local only';
+    }
+  }
+
+  toggleSync(): void {
+    this.isSyncEnabled = !this.isSyncEnabled;
+    localStorage.setItem('syncEnabled', this.isSyncEnabled.toString());
+    this.updateSyncUI();
+    
+    if (this.isSyncEnabled) {
+      this.showToast('Cloud sync ENABLED!', 'success');
+    } else {
+      this.showToast('Sync disabled – local only', 'info');
+    }
+  }
+
+  restoreFromCloud(): void {
+    if (confirm('Restore from Google Sheets?\n\nThis will replace all local data.')) {
+      // Implementation for Google Sheets restore
+      this.showToast('Restore from cloud not implemented yet', 'warning');
+    }
+  }
+
+  private checkCutoffSchedule(): void {
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+    
+    this.isSubmissionAllowed = this.cutoffSchedules.some(schedule => {
+      if (!schedule.isActive) return false;
+      
+      const scheduleStart = this.timeToMinutes(schedule.startTime);
+      const scheduleEnd = this.timeToMinutes(schedule.endTime);
+      
+      return schedule.days.includes(currentDay) && 
+             currentTime >= scheduleStart && 
+             currentTime <= scheduleEnd;
+    });
+  }
+
+  private timeToMinutes(time: string): number {
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+  }
+
+  onFileUpload(event: any): void {
+    const file = event.target.files[0];
     if (!file) return;
 
-    this.uploadedFileName = file.name;
     const reader = new FileReader();
     
-    reader.onload = (e: ProgressEvent<FileReader>) => {
+    reader.onload = (e: any) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
         
-        if (rows.length < 2) throw new Error('File has no data rows.');
-        
-        const headerRow = rows[0].map((h: any) => h.toString().trim().toLowerCase());
-        
-        const col: ColumnMap = { 
-          category: headerRow.findIndex((h: string) => h.includes('category')),
-          skuCode: headerRow.findIndex((h: string) => h.includes('sku') && h.includes('code')),
-          skuName: headerRow.findIndex((h: string) => h.includes('sku') && !h.includes('code') && !h.includes('quantity')),
-          qtyPerUnit: headerRow.findIndex((h: string) => h.includes('quantity') && h.includes('per') && h.includes('unit') && !h.includes('pack')),
-          unit: headerRow.findIndex((h: string) => h === 'unit' && !h.includes('2') && !h.includes('4') && !h.includes('pack') && !h.includes('batch')),
-          qtyPerPack: headerRow.findIndex((h: string) => h.includes('quantity') && h.includes('per') && h.includes('pack')),
-          unit2: headerRow.findIndex((h: string) => h === 'unit2' || (h.includes('unit') && (headerRow[headerRow.indexOf(h)-1] || '').includes('pack'))),
-          raw: headerRow.findIndex((h: string) => h.includes('raw') && h.includes('material')),
-          qtyBatch: headerRow.findIndex((h: string) => h.includes('quantity') && h.includes('batch')),
-          unit4: headerRow.findIndex((h: string) => h.includes('unit') && (h.includes('4') || (headerRow[headerRow.indexOf(h)-1] || '').includes('batch'))),
-          type: headerRow.findIndex((h: string) => h === 'type' || h.includes('type'))
-        };
+        if (rows.length < 2) {
+          this.showToast('File has no data rows.', 'error');
+          return;
+        }
 
+        const headerRow = rows[0].map((h: any) => h.toString().trim().toLowerCase());
+        const col = this.mapColumns(headerRow);
+        
         this.masterData = rows.slice(1)
           .map((r: any[]) => ({
             'CATEGORY': (r[col.category] || '').toString().trim(),
@@ -212,170 +306,394 @@ export class DashboardComponent implements OnInit {
           }))
           .filter(r => r['CATEGORY'] && r['SKU CODE'] && r['SKU']);
 
-        if (this.masterData.length === 0) throw new Error('No valid data rows found.');
-        
+        this.uploadedFileName = file.name;
         this.populateCategories();
         this.saveToLocalStorage();
-        this.showSnackbar(`Loaded ${this.masterData.length} items`, 'success');
+        
+        this.showToast(`Master file loaded! (${this.masterData.length} items)`, 'success');
         
       } catch (error: any) {
-        this.showSnackbar('Upload failed: ' + error.message, 'error');
+        this.showToast(`Upload failed: ${error.message}`, 'error');
       }
     };
     
     reader.onerror = () => {
-      this.showSnackbar('Failed to read file', 'error');
+      this.showToast('Failed to read file.', 'error');
     };
     
     reader.readAsArrayBuffer(file);
   }
 
-  populateCategories() {
-    this.categories = [...new Set(this.masterData.map(r => r['CATEGORY']).filter(Boolean))].sort();
+  private mapColumns(headerRow: string[]): any {
+    return {
+      category: headerRow.findIndex(h => h.includes('category')),
+      skuCode: headerRow.findIndex(h => h.includes('sku') && h.includes('code')),
+      skuName: headerRow.findIndex(h => h.includes('sku') && !h.includes('code') && !h.includes('quantity')),
+      qtyPerUnit: headerRow.findIndex(h => h.includes('quantity') && h.includes('per') && h.includes('unit') && !h.includes('pack')),
+      unit: headerRow.findIndex(h => h === 'unit' && !h.includes('2') && !h.includes('4') && !h.includes('pack') && !h.includes('batch')),
+      qtyPerPack: headerRow.findIndex(h => h.includes('quantity') && h.includes('per') && h.includes('pack')),
+      unit2: headerRow.findIndex(h => h === 'unit2' || (h.includes('unit') && headerRow[headerRow.indexOf(h)-1]?.includes('pack'))),
+      raw: headerRow.findIndex(h => h.includes('raw') && h.includes('material')),
+      qtyBatch: headerRow.findIndex(h => h.includes('quantity') && h.includes('batch')),
+      unit4: headerRow.findIndex(h => h.includes('unit') && (h.includes('4') || headerRow[headerRow.indexOf(h)-1]?.includes('batch'))),
+      type: headerRow.findIndex(h => h === 'type' || h.includes('type'))
+    };
   }
 
-  onCategoryChange() {
-    this.filteredSkus = [];
-    this.selectedSku = '';
-    this.skuCode = '';
-    
-    if (!this.selectedCategory) return;
-    
-    const map = new Map<string, string>();
-    this.masterData
-      .filter(r => r['CATEGORY'] === this.selectedCategory && r['SKU'] && r['SKU CODE'])
-      .forEach(r => {
-        const sku = r['SKU'].trim();
-        const code = r['SKU CODE'].trim();
-        if (sku && code && !map.has(sku)) map.set(sku, code);
-      });
+populateCategories(): void {
+  // Ensure we only get string values and filter out any non-string values
+  const categories = this.masterData
+    .map(r => r['CATEGORY'])
+    .filter(category => {
+      // Filter out falsy values and ensure it's a string
+      return category && typeof category === 'string';
+    })
+    .map(category => category as string); // Explicitly cast to string
+  
+  // Remove duplicates and sort
+  this.categories = [...new Set(categories)].sort();
+}
 
-    this.filteredSkus = Array.from(map)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([name, code]) => ({ name, code }));
+  onCategoryChange(): void {
+    const category = this.requisitionForm.get('category')?.value;
+    if (category) {
+      const map = new Map<string, string>();
+      
+      this.masterData
+        .filter(r => r['CATEGORY'] === category && r['SKU'] && r['SKU CODE'])
+        .forEach(r => {
+          const sku = r['SKU'].trim();
+          const code = r['SKU CODE'].trim();
+          if (sku && code && !map.has(sku)) {
+            map.set(sku, code);
+          }
+        });
+      
+      this.skus = Array.from(map).sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, code]) => ({ name, code }));
+      
+      this.requisitionForm.get('sku')?.enable();
+    } else {
+      this.skus = [];
+      this.requisitionForm.get('sku')?.disable();
+      this.requisitionForm.get('sku')?.setValue('');
+      this.requisitionForm.get('skuCode')?.setValue('');
+    }
   }
 
-  onSkuChange() {
-    this.skuCode = this.selectedSku;
+  onSkuChange(): void {
+    const skuName = this.requisitionForm.get('sku')?.value;
+    const sku = this.skus.find(s => s.name === skuName);
+    if (sku) {
+      this.requisitionForm.get('skuCode')?.setValue(sku.code);
+    }
   }
 
-  addSku() {
-    if (!this.selectedSku || !this.selectedCategory) return;
-    
-    const skuOption = this.filteredSkus.find(s => s.code === this.selectedSku);
-    if (!skuOption) return;
-    
-    const skuName = skuOption.name;
-    const skuInfo = this.masterData.find(r => 
-      r['SKU CODE'] === this.selectedSku && 
-      r['SKU'] === skuName
-    );
-    
-    if (!skuInfo) {
-      this.showSnackbar('SKU not found in master data', 'error');
+  addRequisition(): void {
+    if (this.requisitionForm.invalid) {
+      this.showToast('Please fill all required fields', 'error');
       return;
     }
 
-    const mats = this.masterData
-      .filter(r => r['SKU CODE'] === this.selectedSku && r['SKU'] === skuInfo['SKU'] && r['RAW MATERIAL'])
-      .map(r => ({ 
-        name: r['RAW MATERIAL'], 
-        qty: r['QUANTITY/BATCH'], 
+    const formValue = this.requisitionForm.value;
+    const skuInfo = this.masterData.find(r => 
+      r['SKU CODE'] === formValue.skuCode && r['SKU'] === formValue.sku
+    );
+
+    if (!skuInfo) {
+      this.showToast('SKU not found in master data.', 'error');
+      return;
+    }
+
+    const materials = this.masterData
+      .filter(r => r['SKU CODE'] === formValue.skuCode && r['SKU'] === formValue.sku && r['RAW MATERIAL'])
+      .map(r => ({
+        name: r['RAW MATERIAL'],
+        qty: parseFloat(r['QUANTITY/BATCH']) || 0,
         unit: r['UNIT4'],
-        type: r['TYPE'] || ''
+        type: r['TYPE'] || '',
+        requiredQty: (parseFloat(r['QUANTITY/BATCH']) || 0) * formValue.qtyNeeded,
+        servedQty: 0,
+        remarks: '',
+        servedDate: undefined,
+        isUnserved: false
       }));
 
-    if (!mats.length) {
-      this.showSnackbar('No raw materials found for this SKU', 'error');
+    if (materials.length === 0) {
+      this.showToast('No raw materials found for this SKU.', 'error');
       return;
     }
 
-    this.requisitionRows.push({ 
-      skuCode: this.selectedSku, 
-      skuName: skuName, 
-      category: this.selectedCategory, 
-      qtyNeeded: 1, 
-      supplier: '', 
+    const newItem: RequisitionItem = {
+      id: this.generateId(),
+      skuCode: formValue.skuCode,
+      skuName: formValue.sku,
+      category: formValue.category,
+      qtyNeeded: formValue.qtyNeeded,
+      supplier: formValue.supplier,
       qtyPerUnit: skuInfo['QUANTITY PER UNIT'] || '',
       unit: skuInfo['UNIT'] || '',
       qtyPerPack: skuInfo['QUANTITY PER PACK'] || '',
       unit2: skuInfo['UNIT2'] || '',
-      materials: mats,
-      filteredMaterials: [...mats]
-    });
+      materials: materials,
+      status: 'draft'
+    };
 
-    this.selectedSku = '';
-    this.skuCode = '';
+    this.requisitionItems.push(newItem);
     this.saveToLocalStorage();
-    this.renderPage();
-    this.showSnackbar('SKU added successfully', 'success');
-  }
-
-  // Table Operations
-  toggleRow(index: number) {
-    if (this.expandedRows.has(index)) {
-      this.expandedRows.delete(index);
-    } else {
-      this.expandedRows.add(index);
-    }
-  }
-
-  updateQuantity(item: RequisitionRow, event: Event) {
-    const input = event.target as HTMLInputElement;
-    item.qtyNeeded = Math.max(1, Math.min(99, parseInt(input.value) || 1));
-    this.saveToLocalStorage();
-  }
-
-  updateSupplier(item: RequisitionRow, event: Event) {
-    const input = event.target as HTMLInputElement;
-    item.supplier = input.value.trim();
-    this.saveToLocalStorage();
-  }
-
-  removeItem(index: number) {
-    if (confirm('Remove this item?')) {
-      this.requisitionRows.splice(index, 1);
-      this.saveToLocalStorage();
-      this.renderPage();
-      this.showSnackbar('Item removed', 'error');
-    }
-  }
-
-  filterMaterials(index: number, event: Event) {
-    const select = event.target as HTMLSelectElement;
-    const value = select.value;
-    const item = this.requisitionRows[index];
     
-    if (!value) {
-      item.filteredMaterials = [...item.materials];
+    this.showToast(`${formValue.sku} (${formValue.skuCode}) added!`, 'success');
+    
+    // Reset form
+    this.requisitionForm.reset({
+      qtyNeeded: 1,
+      supplier: ''
+    });
+    this.requisitionForm.get('skuCode')?.setValue('');
+    
+    this.currentPage = Math.ceil(this.requisitionItems.length / this.itemsPerPage);
+    this.filterAndPaginate();
+  }
+
+  updateQty(itemId: string, qty: number): void {
+    if (qty < 1 || qty > 99) return;
+    
+    const item = this.requisitionItems.find(i => i.id === itemId);
+    if (item) {
+      item.qtyNeeded = qty;
+      // Update material required quantities
+      item.materials.forEach(material => {
+        material.requiredQty = material.qty * qty;
+      });
+      this.saveToLocalStorage();
+      this.filterAndPaginate();
+    }
+  }
+
+  updateSupplier(itemId: string, supplier: string): void {
+    const item = this.requisitionItems.find(i => i.id === itemId);
+    if (item) {
+      item.supplier = supplier;
+      this.saveToLocalStorage();
+    }
+  }
+
+  deleteItem(itemId: string): void {
+    if (confirm('Are you sure you want to delete this item?')) {
+      const index = this.requisitionItems.findIndex(item => item.id === itemId);
+      if (index !== -1) {
+        const removedName = this.requisitionItems[index].skuName;
+        this.requisitionItems.splice(index, 1);
+        this.saveToLocalStorage();
+        this.filterAndPaginate();
+        this.showToast(`${removedName} removed`, 'error');
+      }
+    }
+  }
+
+  toggleRow(itemId: string): void {
+    if (this.expandedRows.has(itemId)) {
+      this.expandedRows.delete(itemId);
     } else {
-      item.filteredMaterials = item.materials.filter(m => 
-        this.mapTypeToFilter(m.type) === value
+      this.expandedRows.add(itemId);
+    }
+  }
+
+  updateMaterialServedQty(itemId: string, materialIndex: number, servedQty: number, remarks?: string): void {
+    const item = this.requisitionItems.find(i => i.id === itemId);
+    if (item && item.materials[materialIndex]) {
+      const material = item.materials[materialIndex];
+      material.servedQty = servedQty;
+      material.remarks = remarks;
+      material.servedDate = new Date();
+      material.isUnserved = servedQty < material.requiredQty;
+      
+      this.saveToLocalStorage();
+      this.filterAndPaginate();
+    }
+  }
+
+  submitRequisition(itemId: string): void {
+    if (!this.isSubmissionAllowed) {
+      this.showToast('Submission is not allowed at this time. Please check cutoff schedule.', 'error');
+      return;
+    }
+
+    if (!this.currentUser) {
+      this.showToast('You must be logged in to submit', 'error');
+      return;
+    }
+
+    const item = this.requisitionItems.find(i => i.id === itemId);
+    if (item) {
+      // Validate required fields
+      if (!item.supplier || !item.qtyNeeded || item.qtyNeeded <= 0) {
+        this.showToast('Please fill all required fields before submission', 'error');
+        return;
+      }
+
+      if (confirm('Submit this requisition for approval?')) {
+        item.status = 'submitted';
+        item.submittedBy = this.currentUser.fullName || this.currentUser.username;
+        item.submittedDate = new Date();
+        this.saveToLocalStorage();
+        this.filterAndPaginate();
+        this.showToast('Requisition submitted successfully', 'success');
+      }
+    }
+  }
+
+  reviewRequisition(itemId: string, approve: boolean): void {
+    if (!this.isAdmin) {
+      this.showToast('Only admins can review requisitions', 'error');
+      return;
+    }
+
+    const item = this.requisitionItems.find(i => i.id === itemId);
+    if (item) {
+      const remarks = prompt(approve ? 'Enter approval remarks (optional):' : 'Enter rejection reason:');
+      if (remarks !== null) {
+        item.status = approve ? 'approved' : 'rejected';
+        item.reviewedBy = this.currentUser.fullName || this.currentUser.username;
+        item.reviewedDate = new Date();
+        item.remarks = remarks;
+        this.saveToLocalStorage();
+        this.filterAndPaginate();
+        this.showToast(`Requisition ${approve ? 'approved' : 'rejected'}`, 'success');
+      }
+    }
+  }
+
+  filterAndPaginate(): void {
+    let filtered = [...this.requisitionItems];
+    
+    // Apply search filter
+    if (this.searchQuery) {
+      const query = this.searchQuery.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.skuCode.toLowerCase().includes(query) ||
+        item.skuName.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query)
       );
     }
+
+    // Apply sorting
+    if (this.sortField) {
+      filtered.sort((a: any, b: any) => {
+        const aVal = a[this.sortField] || '';
+        const bVal = b[this.sortField] || '';
+        return aVal.toString().localeCompare(bVal.toString()) * (this.sortAsc ? 1 : -1);
+      });
+    }
+
+    // Calculate pagination
+    this.totalPages = Math.ceil(filtered.length / this.itemsPerPage);
+    this.currentPage = Math.min(this.currentPage, this.totalPages || 1);
+    
+    const start = (this.currentPage - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    this.filteredItems = filtered.slice(start, end);
   }
 
-  getFilteredMaterials(index: number): Material[] {
-    return this.requisitionRows[index].filteredMaterials || this.requisitionRows[index].materials;
+  onSearch(): void {
+    this.currentPage = 1;
+    this.filterAndPaginate();
   }
 
-  getUniqueTypes(materials: Material[]): string[] {
-    const types = new Set(materials.map(m => this.mapTypeToFilter(m.type)).filter(Boolean));
-    return Array.from(types).sort();
+  sortBy(field: string): void {
+    if (this.sortField === field) {
+      this.sortAsc = !this.sortAsc;
+    } else {
+      this.sortField = field;
+      this.sortAsc = true;
+    }
+    this.filterAndPaginate();
   }
 
-  getTypeDisplayName(type: string): string {
-    switch(type) {
-      case 'meat-veg': return 'Meat & Vegetables';
-      case 'pre-mix': return 'Pre-mix';
-      case 'packaging': return 'Packaging';
-      default: return type;
+  changePage(direction: number): void {
+    const newPage = this.currentPage + direction;
+    if (newPage >= 1 && newPage <= this.totalPages) {
+      this.currentPage = newPage;
+      this.filterAndPaginate();
     }
   }
 
-  mapTypeToFilter(type: string): string {
+  toggleExportDropdown(): void {
+    this.isExportDropdownOpen = !this.isExportDropdownOpen;
+  }
+
+exportData(type: string = 'all'): void {
+  this.isExportDropdownOpen = false;
+  
+  if (this.requisitionItems.length === 0) {
+    this.showToast('No data to export.', 'error');
+    return;
+  }
+
+  const data = [
+    ['RAW MATERIAL E-PORTAL REQUISITION'],
+    ['Generated', new Date().toLocaleString('en-PH')],
+    ['Master File', this.uploadedFileName || 'None'],
+    ['Export Type', this.getExportTypeDisplayName(type)],
+    [''],
+    ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier', 'Status', 
+     'Raw Material', 'Qty/Batch', 'Unit', 'Type', 'Required Qty', 'Served Qty', 
+     'Remarks', 'Served Date', 'Unserved']
+  ];
+
+  this.requisitionItems.forEach(item => {
+    if (!item.materials?.length) return;
+    
+    let materialsToExport = item.materials;
+    if (type !== 'all') {
+      materialsToExport = item.materials.filter(m => 
+        this.mapTypeToFilter(m.type) === type
+      );
+    }
+    
+    if (materialsToExport.length === 0) return;
+
+    materialsToExport.forEach((m, index) => {
+      // Create row with all string values
+      const row: string[] = [
+        index === 0 ? item.skuCode : '',
+        index === 0 ? item.skuName : '',
+        index === 0 ? item.category : '',
+        index === 0 ? item.qtyNeeded.toString() : '',
+        index === 0 ? item.supplier || '' : '',
+        index === 0 ? item.status : '',
+        m.name,
+        m.qty.toString(),
+        m.unit || '',
+        m.type || '',
+        m.requiredQty.toString(),
+        (m.servedQty || 0).toString(),
+        m.remarks || '',
+        m.servedDate ? m.servedDate.toLocaleDateString() : '',
+        m.isUnserved ? 'Yes' : 'No'
+      ];
+      
+      data.push(row);
+    });
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Requisition');
+  
+  const fileName = `Requisition_${
+    type === 'all' ? 'All' : 
+    this.getExportTypeDisplayName(type).replace(/&/g, 'and').replace(/\s+/g, '')
+  }_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+  
+  XLSX.writeFile(wb, fileName);
+  this.showToast(`Exported ${this.getExportTypeDisplayName(type).toLowerCase()} successfully!`, 'success');
+}
+
+  private mapTypeToFilter(type: string): string {
     if (!type) return '';
     const lowerType = type.toLowerCase().trim();
+    
     for (const [filterType, keywords] of Object.entries(this.typeMapping)) {
       if (keywords.some(keyword => lowerType.includes(keyword))) {
         return filterType;
@@ -384,362 +702,105 @@ export class DashboardComponent implements OnInit {
     return '';
   }
 
-  // Helper method for template
-  calculateTotal(qty: string, multiplier: number): string {
-    const parsedQty = parseFloat(qty) || 0;
-    const total = parsedQty * multiplier;
-    // Return as string with 2 decimal places if needed
-    return total % 1 === 0 ? total.toString() : total.toFixed(2);
-  }
-
-  // Sorting & Searching
-  sortBy(field: string) {
-    if (this.sortField === field) {
-      this.sortAsc = !this.sortAsc;
-    } else {
-      this.sortField = field;
-      this.sortAsc = true;
-    }
-    this.currentPage = 1;
-    this.renderPage();
-  }
-
-  onSearch() {
-    this.currentPage = 1;
-    this.renderPage();
-  }
-
-  // Pagination
-  renderPage() {
-    let items = [...this.requisitionRows];
-    
-    // Apply search filter
-    if (this.searchQuery) {
-      const query = this.searchQuery.toLowerCase();
-      items = items.filter(i =>
-        i.skuCode.toLowerCase().includes(query) ||
-        i.skuName.toLowerCase().includes(query) ||
-        i.category.toLowerCase().includes(query)
-      );
-    }
-    
-    // Apply sorting
-    if (this.sortField) {
-      items.sort((a, b) => {
-        const aValue = (a as any)[this.sortField!]?.toString().toLowerCase() || '';
-        const bValue = (b as any)[this.sortField!]?.toString().toLowerCase() || '';
-        return (aValue < bValue ? -1 : aValue > bValue ? 1 : 0) * (this.sortAsc ? 1 : -1);
-      });
-    }
-    
-    // Paginate
-    this.totalPages = Math.ceil(items.length / this.itemsPerPage) || 1;
-    const start = (this.currentPage - 1) * this.itemsPerPage;
-    const end = start + this.itemsPerPage;
-    this.paginatedItems = items.slice(start, end);
-  }
-
-  prevPage() {
-    if (this.currentPage > 1) {
-      this.currentPage--;
-      this.renderPage();
-    }
-  }
-
-  nextPage() {
-    if (this.currentPage < this.totalPages) {
-      this.currentPage++;
-      this.renderPage();
-    }
-  }
-
-  // Export
-  toggleExportDropdown() {
-    this.showExportDropdown = !this.showExportDropdown;
-  }
-
-  exportData(exportType: string = 'all') {
-    if (!this.requisitionRows.length) {
-      this.showSnackbar('No data to export', 'error');
-      return;
-    }
-
-    let items = [...this.requisitionRows];
-    if (this.sortField) {
-      items.sort((a, b) => {
-        const aValue = (a as any)[this.sortField!]?.toString().toLowerCase() || '';
-        const bValue = (b as any)[this.sortField!]?.toString().toLowerCase() || '';
-        return (aValue < bValue ? -1 : aValue > bValue ? 1 : 0) * (this.sortAsc ? 1 : -1);
-      });
-    }
-
-    const displayName = this.getExportTypeDisplayName(exportType);
-    const data = [
-      ['RAW MATERIAL REQUISITION'],
-      ['Generated', new Date().toLocaleString('en-PH')],
-      ['Master File', this.uploadedFileName || 'None'],
-      ['Export Type', displayName],
-      [''],
-      ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier', 'Raw Material', 'Qty/Batch', 'Unit', 'Type', 'Total Required']
-    ];
-
-    items.forEach(item => {
-      if (!item.materials?.length) return;
-      
-      let materialsToExport = item.materials;
-      if (exportType !== 'all') {
-        materialsToExport = item.materials.filter(m => this.mapTypeToFilter(m.type) === exportType);
-      }
-      if (materialsToExport.length === 0) return;
-
-      materialsToExport.forEach((m, index) => {
-        const totalQty = (parseFloat(m.qty) || 0) * item.qtyNeeded;
-        const total = totalQty + (m.unit ? ' ' + m.unit : '');
-
-        if (index === 0) {
-          data.push([
-            item.skuCode, item.skuName, item.category, item.qtyNeeded.toString(), item.supplier || '',
-            m.name, m.qty, m.unit || '', m.type || '', total
-          ]);
-        } else {
-          data.push(['', '', '', '', '', m.name, m.qty, m.unit || '', m.type || '', total]);
-        }
-      });
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [
-      {wch:12},{wch:30},{wch:15},{wch:10},{wch:20},
-      {wch:35},{wch:12},{wch:8},{wch:10},{wch:16}
-    ];
-
-    // FIX: Added safe handling for ws['!ref'] which can be undefined
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const cell = ws[XLSX.utils.encode_cell({r:4, c:C})];
-      if (cell) cell.s = { font: { bold: true } };
-    }
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Requisition');
-    
-    const fileName = `Requisition_${exportType === 'all' ? 'All' : displayName.replace(/&/g, 'and').replace(/\s+/g, '')}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
-    
-    XLSX.writeFile(wb, fileName);
-    
-    this.showExportDropdown = false;
-    this.showSnackbar('Export completed', 'success');
-  }
-
-  getExportTypeDisplayName(exportType: string): string {
+  private getExportTypeDisplayName(exportType: string): string {
     switch(exportType) {
       case 'all': return 'All Data';
       case 'pre-mix': return 'Pre-mix Only';
       case 'packaging': return 'Packaging Only';
       case 'meat-veg': return 'Meat & Vegetables Only';
-      default: return 'All Data';
+      default: return exportType;
     }
   }
 
-  // Cloud Sync
-  loadSyncConfig() {
-    this.isSyncEnabled = localStorage.getItem('syncEnabled') === 'true';
-    this.lastSyncTime = localStorage.getItem('lastSyncTime');
-  }
-
-  getSyncStatusText(): string {
-    if (!this.isSyncEnabled) return 'Local only';
-    
-    if (this.lastSyncTime) {
-      const date = new Date(this.lastSyncTime);
-      return `Last sync: ${date.toLocaleTimeString()}`;
-    }
-    
-    return 'Auto-sync ON';
-  }
-
-  async toggleSync() {
-    this.isSyncEnabled = !this.isSyncEnabled;
-    localStorage.setItem('syncEnabled', this.isSyncEnabled.toString());
-    
-    if (this.isSyncEnabled) {
-      this.showSnackbar('Cloud sync enabled', 'success');
-      try {
-        await this.syncToCloud();
-      } catch (e) {
-        this.showSnackbar('Sync enabled – will retry on next save', 'info');
-      }
-    } else {
-      this.showSnackbar('Sync disabled – local only', 'info');
-    }
-  }
-
-  async restoreFromCloud() {
-    if (!confirm('Restore from cloud? This will replace all local data.')) return;
-
-    try {
-      const response = await fetch(this.SHEETS_WEB_APP_URL);
-      if (!response.ok) throw new Error('Failed to reach server');
-      
-      const text = await response.text();
-      if (!text || text.includes('error')) {
-        alert('No backup found in cloud yet.');
-        return;
-      }
-
-      const data = JSON.parse(text);
-      this.requisitionRows = data.requisitionRows || [];
-      this.masterData = data.masterData || [];
-      this.uploadedFileName = data.uploadedFileName || '';
-
-      if (this.masterData.length) this.populateCategories();
-      
+  clearAll(): void {
+    if (confirm('Clear all requisition data?')) {
+      this.requisitionItems = [];
+      this.masterData = [];
+      this.uploadedFileName = '';
+      this.searchQuery = '';
+      this.currentPage = 1;
       this.saveToLocalStorage();
-      this.renderPage();
-      this.showSnackbar('Restored from cloud!', 'success');
-      
-    } catch (error: any) {
-      this.showSnackbar('Restore failed: ' + error.message, 'error');
+      this.filterAndPaginate();
+      this.showToast('All data cleared!', 'info');
     }
   }
 
-  async syncToCloud() {
-    if (!this.isSyncEnabled || this.syncInProgress) return;
-    
-    this.syncInProgress = true;
-    try {
-      const payload = {
-        requisitionRows: this.requisitionRows,
-        masterData: this.masterData,
-        uploadedFileName: this.uploadedFileName,
-        lastModified: new Date().toISOString(),
-        device: navigator.userAgent.substring(0, 80)
-      };
-      
-      const response = await fetch(this.SHEETS_WEB_APP_URL, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+  clearFile(): void {
+    if (confirm('Clear uploaded master file?')) {
+      this.masterData = [];
+      this.uploadedFileName = '';
+      this.categories = [];
+      this.skus = [];
+      this.requisitionForm.reset({
+        qtyNeeded: 1,
+        supplier: ''
       });
-      
-      if (!response.ok) throw new Error('Network error');
-      
-      this.lastSyncTime = new Date().toISOString();
-      localStorage.setItem('lastSyncTime', this.lastSyncTime);
-      
-    } catch (error) {
-      console.warn('Sync failed:', error);
-    } finally {
-      this.syncInProgress = false;
+      this.saveToLocalStorage();
+      this.filterAndPaginate();
     }
   }
 
-  // Utilities
-  clearFile() {
-    this.masterData = [];
-    this.categories = [];
-    this.selectedCategory = '';
-    this.selectedSku = '';
-    this.skuCode = '';
-    this.uploadedFileName = '';
-    this.saveToLocalStorage();
-    this.renderPage();
+  toggleDarkMode(): void {
+    this.darkMode = !this.darkMode;
+    localStorage.setItem('darkMode', this.darkMode.toString());
+    this.updateDarkMode();
   }
 
-  clearAll() {
-    if (!confirm('Clear all data?')) return;
-    
-    this.requisitionRows = [];
-    this.masterData = [];
-    this.categories = [];
-    this.selectedCategory = '';
-    this.selectedSku = '';
-    this.skuCode = '';
-    this.uploadedFileName = '';
-    this.searchQuery = '';
-    this.sortField = null;
-    this.currentPage = 1;
-    this.expandedRows.clear();
-    
-    this.saveToLocalStorage();
-    this.renderPage();
-    this.showSnackbar('All data cleared', 'info');
-  }
-
-  printTable() {
-    window.print();
-  }
-
-  // Local Storage
-  saveToLocalStorage() {
-    const data = {
-      requisitionRows: this.requisitionRows,
-      masterData: this.masterData,
-      uploadedFileName: this.uploadedFileName,
-      lastModified: new Date().toISOString()
-    };
-    localStorage.setItem('requisitionData', JSON.stringify(data));
-    
-    if (this.isSyncEnabled) {
-      this.syncToCloud();
+  private updateDarkMode(): void {
+    if (this.darkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
     }
   }
 
-  loadFromLocalStorage() {
-    const saved = localStorage.getItem('requisitionData');
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        this.requisitionRows = data.requisitionRows || [];
-        this.masterData = data.masterData || [];
-        this.uploadedFileName = data.uploadedFileName || '';
-        
-        if (this.masterData.length) this.populateCategories();
-      } catch (e) {
-        console.error('Failed to load saved data:', e);
-      }
+  logout(): void {
+    if (confirm('Are you sure you want to logout?')) {
+      localStorage.removeItem('currentUser');
+      this.router.navigate(['/login']);
     }
   }
 
-  // Snackbar
-  showSnackbar(message: string, type: 'success' | 'error' | 'info' = 'info', duration: number = 3000) {
-    const container = this.snackbarContainer?.nativeElement;
-    if (!container) return;
+  private generateId(): string {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  }
 
-    const snack = this.renderer.createElement('div');
-    
-    // Use bracket notation for type-safe access
-    const iconMap: Record<string, string> = { 
-      success: 'fa-check-circle', 
-      error: 'fa-exclamation-triangle', 
-      info: 'fa-info-circle' 
-    };
-    
-    this.renderer.addClass(snack, 'snackbar');
-    this.renderer.addClass(snack, type);
-    
-    const icon = this.renderer.createElement('i');
-    this.renderer.addClass(icon, 'fas');
-    this.renderer.addClass(icon, iconMap[type] || iconMap['info']);
-    
-    const text = this.renderer.createElement('span');
-    this.renderer.appendChild(text, this.renderer.createText(message));
-    
-    this.renderer.appendChild(snack, icon);
-    this.renderer.appendChild(snack, text);
-    this.renderer.appendChild(container, snack);
-    
-    setTimeout(() => {
-      this.renderer.addClass(snack, 'show');
-    }, 10);
+  private showToast(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
+    // Simple alert for now, can be replaced with a proper toast system
+    alert(`${type.toUpperCase()}: ${message}`);
+  }
 
-    setTimeout(() => {
-      this.renderer.removeClass(snack, 'show');
-      setTimeout(() => {
-        if (snack.parentNode === container) {
-          this.renderer.removeChild(container, snack);
-        }
-      }, 400);
-    }, duration);
+  // Helper methods for template
+  getStatusColor(status: string): string {
+    switch(status) {
+      case 'draft': return '#6c757d';
+      case 'submitted': return '#007bff';
+      case 'approved': return '#28a745';
+      case 'rejected': return '#dc3545';
+      default: return '#6c757d';
+    }
+  }
+
+  getStatusIcon(status: string): string {
+    switch(status) {
+      case 'draft': return 'fa-edit';
+      case 'submitted': return 'fa-paper-plane';
+      case 'approved': return 'fa-check-circle';
+      case 'rejected': return 'fa-times-circle';
+      default: return 'fa-question-circle';
+    }
+  }
+
+  // Filter materials by type
+  filterMaterials(event: Event, itemId: string): void {
+    const selectElement = event.target as HTMLSelectElement;
+    const filterType = selectElement.value;
+    // Implementation can be added if needed for client-side filtering
+    console.log(`Filtering materials for item ${itemId} by type: ${filterType}`);
+  }
+  
+  // Access window object
+  get window(): any {
+    return window;
   }
 }
