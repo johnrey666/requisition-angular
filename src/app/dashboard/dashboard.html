@@ -1,20 +1,19 @@
 <div class="dashboard-container">
-  <!-- Header -->
   <div class="header">
     <div class="header-left">
       <h2><i class="fas fa-industry"></i> Raw Material E-Portal</h2>
       <div class="user-info">
-        <span class="user-role" [ngClass]="{'admin': isAdmin, 'user': !isAdmin}">
-          <i class="fas" [ngClass]="isAdmin ? 'fa-user-shield' : 'fa-user'"></i>
-          {{ currentUser?.name || currentUser?.username }}
+        <span class="user-role" [class.admin]="isAdmin" [class.user]="!isAdmin">
+          <i class="fas" [class.fa-user-shield]="isAdmin" [class.fa-user]="!isAdmin"></i>
+          {{ currentUser?.full_name || currentUser?.username || currentUser?.email }}
           <span class="role-badge">{{ isAdmin ? 'Admin' : 'User' }}</span>
         </span>
       </div>
     </div>
-    
+
     <div class="header-actions">
       <button id="darkModeBtn" (click)="toggleDarkMode()" [title]="darkMode ? 'Light Mode' : 'Dark Mode'">
-        <i class="fas" [ngClass]="darkMode ? 'fa-sun' : 'fa-moon'"></i>
+        <i class="fas" [class.fa-sun]="darkMode" [class.fa-moon]="!darkMode"></i>
       </button>
       <button id="printBtn" (click)="window.print()" title="Print Table">
         <i class="fas fa-print"></i>
@@ -25,15 +24,14 @@
     </div>
   </div>
 
-  <!-- Upload Section -->
   <div class="upload-section">
     <div class="upload-box">
-      <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls" 
+      <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls"
              (change)="onFileUpload($event)" style="display: none">
       <button class="btn-upload" (click)="masterFileInput.click()">
         <i class="fas fa-upload"></i> Upload Master File
       </button>
-      <span class="upload-status" [ngClass]="{'has-file': uploadedFileName}">
+      <span class="upload-status" [class.has-file]="uploadedFileName">
         {{ uploadedFileName || 'No file uploaded' }}
       </span>
       @if (uploadedFileName) {
@@ -42,80 +40,86 @@
         </button>
       }
 
-      <!-- Cloud Sync Section -->
       <div class="cloud-section">
         <button id="configBtn" title="View Config">
           <i class="fas fa-cog"></i>
         </button>
-        
-        <button id="syncBtn" (click)="toggleSync()" 
-                [ngClass]="{'synced': isSyncEnabled, 'offline': !isSyncEnabled}"
+
+        <button id="syncBtn" (click)="toggleSync()"
+                [class.synced]="isSyncEnabled" [class.offline]="!isSyncEnabled"
                 [title]="isSyncEnabled ? 'Disable cloud sync' : 'Enable cloud sync'">
-          <i class="fas" [ngClass]="isSyncEnabled ? 'fa-cloud-upload-alt' : 'fa-cloud-slash'"></i>
+          <i class="fas" [class.fa-cloud-upload-alt]="isSyncEnabled" [class.fa-cloud-slash]="!isSyncEnabled"></i>
           <span>{{ isSyncEnabled ? 'Synced' : 'Offline' }}</span>
         </button>
-        
+
         <button id="restoreBtn" (click)="restoreFromCloud()" title="Restore from cloud">
           <i class="fas fa-cloud-download-alt"></i>
           <span>Restore</span>
         </button>
-        
+
         <span class="sync-status">{{ syncStatus }}</span>
       </div>
     </div>
   </div>
 
-  <!-- Controls Section -->
   <div class="controls-section">
-    <!-- Form Controls -->
     <div class="form-controls">
-      <div class="form-row">
-        <select id="categorySelect" formControlName="category" (change)="onCategoryChange()" 
-                [disabled]="!uploadedFileName" class="form-select">
+      <form [formGroup]="requisitionForm" class="form-row">
+        <select id="categorySelect"
+                formControlName="category"
+                (change)="onCategoryChange()"
+                class="form-select">
           <option value="">-- Category --</option>
           @for (category of categories; track category) {
             <option [value]="category">{{ category }}</option>
           }
         </select>
-        
-        <select id="skuSelect" formControlName="sku" (change)="onSkuChange()" 
-                [disabled]="!requisitionForm.get('category')?.value" class="form-select">
+
+        <select id="skuSelect"
+                formControlName="sku"
+                (change)="onSkuChange()"
+                [disabled]="skus.length === 0"
+                class="form-select">
           <option value="">-- SKU --</option>
           @for (sku of skus; track sku.code) {
-            <option [value]="sku.name">{{ sku.name }}</option>
+            <option [value]="sku.name">{{ sku.name }} ({{ sku.code }})</option>
           }
         </select>
-        
-        <input type="text" id="skuCodeDisplay" formControlName="skuCode" placeholder="Code" readonly class="form-input">
-        
-        <input type="number" id="qtyInput" formControlName="qtyNeeded" min="1" max="99" 
-               placeholder="Qty" class="form-input qty-input">
-        
-        <input type="text" id="supplierInput" formControlName="supplier" placeholder="Supplier" class="form-input">
-        
-        <button id="addBtn" (click)="addRequisition()" 
-                [disabled]="requisitionForm.invalid" class="btn-primary">
+
+        <input type="text"
+               formControlName="skuCode"
+               placeholder="Code"
+               readonly
+               class="form-input">
+
+        <input type="text"
+               formControlName="supplier"
+               placeholder="Supplier"
+               class="form-input">
+
+        <button type="button"
+                (click)="addRequisition()"
+                [disabled]="requisitionForm.invalid"
+                class="btn-primary">
           <i class="fas fa-plus"></i> Add
         </button>
-      </div>
+      </form>
     </div>
 
-    <!-- Action Controls -->
     <div class="action-controls">
       <div class="search-box">
         <i class="fas fa-search"></i>
-        <input type="text" id="searchInput" [(ngModel)]="searchQuery" 
-               (ngModelChange)="onSearch()" placeholder="Search Code/SKU/Category..." 
+        <input type="text" id="searchInput" [(ngModel)]="searchQuery"
+               (ngModelChange)="onSearch()" placeholder="Search Code/SKU/Category..."
                class="search-input">
       </div>
-      
-      <!-- Export Dropdown -->
+
       <div class="export-dropdown">
-        <button class="btn-export" (click)="toggleExportDropdown()" 
+        <button class="btn-export" (click)="toggleExportDropdown()"
                 [disabled]="requisitionItems.length === 0">
           <i class="fas fa-download"></i> Export
         </button>
-        
+
         @if (isExportDropdownOpen) {
           <div class="export-options">
             <button (click)="exportData('all')">
@@ -133,14 +137,13 @@
           </div>
         }
       </div>
-      
+
       <button id="clearBtn" (click)="clearAll()" class="btn-danger">
         <i class="fas fa-trash"></i> Clear All
       </button>
     </div>
   </div>
 
-  <!-- Cutoff Schedule Indicator -->
   @if (!isSubmissionAllowed) {
     <div class="cutoff-warning">
       <i class="fas fa-clock"></i>
@@ -148,22 +151,21 @@
     </div>
   }
 
-  <!-- Main Table -->
   <div class="table-container">
     <table class="main-table">
       <thead>
         <tr>
           <th style="width:40px;"></th>
-          <th class="sortable" (click)="sortBy('skuCode')" [ngClass]="{'sort-asc': sortField === 'skuCode' && sortAsc, 'sort-desc': sortField === 'skuCode' && !sortAsc}">
+          <th class="sortable" (click)="sortBy('skuCode')" [class.sort-asc]="sortField === 'skuCode' && sortAsc" [class.sort-desc]="sortField === 'skuCode' && !sortAsc">
             Code <i class="fas fa-sort sort-icon"></i>
           </th>
-          <th class="sortable" (click)="sortBy('skuName')" [ngClass]="{'sort-asc': sortField === 'skuName' && sortAsc, 'sort-desc': sortField === 'skuName' && !sortAsc}">
+          <th class="sortable" (click)="sortBy('skuName')" [class.sort-asc]="sortField === 'skuName' && sortAsc" [class.sort-desc]="sortField === 'skuName' && !sortAsc">
             SKU <i class="fas fa-sort sort-icon"></i>
           </th>
-          <th class="sortable" (click)="sortBy('category')" [ngClass]="{'sort-asc': sortField === 'category' && sortAsc, 'sort-desc': sortField === 'category' && !sortAsc}">
+          <th class="sortable" (click)="sortBy('category')" [class.sort-asc]="sortField === 'category' && sortAsc" [class.sort-desc]="sortField === 'category' && !sortAsc">
             Category <i class="fas fa-sort sort-icon"></i>
           </th>
-          <th style="width:60px;">Qty</th>
+          <th style="width:80px;">Qty</th>
           <th style="width:140px;">Supplier</th>
           <th style="width:90px;">Qty/Unit</th>
           <th style="width:70px;">Unit</th>
@@ -181,32 +183,37 @@
               <div class="empty-state">
                 <i class="fas fa-inbox"></i>
                 <p>{{ searchQuery ? 'No results found' : 'No requisitions added yet' }}</p>
+                @if (!uploadedFileName) {
+                  <p class="upload-hint">Upload a master file to start adding requisitions</p>
+                }
               </div>
             </td>
           </tr>
         }
-        
+
         @for (item of filteredItems; track item.id; let i = $index) {
-          <tr [ngClass]="{'expanded': expandedRows.has(item.id)}">
+          <tr [class.expanded]="expandedRows.has(item.id)">
             <td>
-              <button class="toggle-btn" (click)="toggleRow(item.id)" 
+              <button class="toggle-btn" (click)="toggleRow(item.id)"
                       [title]="expandedRows.has(item.id) ? 'Collapse' : 'Expand'">
-                <i class="fas" [ngClass]="expandedRows.has(item.id) ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                <i class="fas" [class.fa-chevron-up]="expandedRows.has(item.id)" [class.fa-chevron-down]="!expandedRows.has(item.id)"></i>
               </button>
             </td>
             <td><strong>{{ item.skuCode }}</strong></td>
             <td>{{ item.skuName }}</td>
             <td><span class="category-badge">{{ item.category }}</span></td>
             <td>
-              <input type="number" class="qty-input" min="1" max="99" 
-                     [value]="item.qtyNeeded" 
-                     (change)="updateQty(item.id, $any($event.target).value)">
+              <input type="number" class="qty-input" min="1" max="99"
+                     [value]="item.qtyNeeded"
+                     (change)="updateQty(item.id, $any($event.target).value)"
+                     [disabled]="item.status !== 'draft'">
             </td>
             <td>
-              <input type="text" class="supplier-input" 
-                     [value]="item.supplier" 
+              <input type="text" class="supplier-input"
+                     [value]="item.supplier"
                      (change)="updateSupplier(item.id, $any($event.target).value)"
-                     placeholder="Enter supplier">
+                     placeholder="Enter supplier"
+                     [disabled]="item.status !== 'draft'">
             </td>
             <td class="numeric">{{ item.qtyPerUnit || '-' }}</td>
             <td>{{ item.unit || '-' }}</td>
@@ -214,21 +221,20 @@
             <td>{{ item.unit2 || '-' }}</td>
             <td class="numeric">{{ item.materials.length }}</td>
             <td>
-              <span class="status-badge" [ngClass]="item.status" 
-                    [style.background-color]="getStatusColor(item.status)">
-                <i class="fas" [ngClass]="getStatusIcon(item.status)"></i>
+              <span class="status-badge" [class]="item.status">
+                <i class="fas" [class]="getStatusIcon(item.status)"></i>
                 {{ item.status | titlecase }}
               </span>
             </td>
             <td>
               <div class="action-buttons">
                 @if (item.status === 'draft') {
-                  <button class="btn-submit" (click)="submitRequisition(item.id)" 
+                  <button class="btn-submit" (click)="submitRequisition(item.id)"
                           [disabled]="!isSubmissionAllowed" title="Submit for approval">
                     <i class="fas fa-paper-plane"></i>
                   </button>
                 }
-                
+
                 @if (isAdmin && item.status === 'submitted') {
                   <button class="btn-approve" (click)="reviewRequisition(item.id, true)" title="Approve">
                     <i class="fas fa-check"></i>
@@ -237,15 +243,15 @@
                     <i class="fas fa-times"></i>
                   </button>
                 }
-                
-                <button class="btn-delete" (click)="deleteItem(item.id)" title="Delete">
+
+                <button class="btn-delete" (click)="deleteItem(item.id)" title="Delete"
+                        [disabled]="item.status !== 'draft' && !isAdmin">
                   <i class="fas fa-trash"></i>
                 </button>
               </div>
             </td>
           </tr>
-          
-          <!-- Expanded Row (Materials Details) -->
+
           @if (expandedRows.has(item.id)) {
             <tr class="expanded-row">
               <td colspan="13">
@@ -253,7 +259,7 @@
                   <div class="details-header">
                     <h4><i class="fas fa-list"></i> Raw Materials for {{ item.skuName }}</h4>
                     <div class="type-filter">
-                      <select class="type-select" (change)="filterMaterials($event, item.id)">
+                      <select class="type-select" #typeFilter (change)="filterMaterials(item.id, typeFilter.value)">
                         <option value="">All Types</option>
                         <option value="pre-mix">Pre-mix</option>
                         <option value="packaging">Packaging</option>
@@ -261,7 +267,7 @@
                       </select>
                     </div>
                   </div>
-                  
+
                   <table class="materials-table">
                     <thead>
                       <tr>
@@ -277,8 +283,8 @@
                       </tr>
                     </thead>
                     <tbody>
-                      @for (material of item.materials; track $index) {
-                        <tr [ngClass]="{'unserved': material.isUnserved}">
+                      @for (material of getFilteredMaterials(item.id, item.materials); track $index) {
+                        <tr [class.unserved]="material.isUnserved">
                           <td><strong>{{ material.name }}</strong></td>
                           <td class="numeric">{{ material.qty }}</td>
                           <td>{{ material.unit }}</td>
@@ -287,16 +293,18 @@
                           </td>
                           <td class="numeric">{{ material.requiredQty }} {{ material.unit }}</td>
                           <td>
-                            <input type="number" class="served-input" 
+                            <input type="number" class="served-input"
                                    [value]="material.servedQty || 0"
                                    min="0" [max]="material.requiredQty"
-                                   (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)">
+                                   (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)"
+                                   [disabled]="item.status === 'draft'">
                           </td>
                           <td>
-                            <input type="text" class="remarks-input" 
+                            <input type="text" class="remarks-input"
                                    [value]="material.remarks || ''"
                                    placeholder="Remarks"
-                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)">
+                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)"
+                                   [disabled]="item.status === 'draft'">
                           </td>
                           <td>
                             @if (material.isUnserved) {
@@ -317,9 +325,10 @@
                             }
                           </td>
                           <td>
-                            <button class="btn-save" 
+                            <button class="btn-save"
                                     (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)"
-                                    title="Save changes">
+                                    title="Save changes"
+                                    [disabled]="item.status === 'draft'">
                               <i class="fas fa-save"></i>
                             </button>
                           </td>
@@ -345,7 +354,6 @@
     </table>
   </div>
 
-  <!-- Pagination -->
   @if (requisitionItems.length > itemsPerPage) {
     <div class="pagination">
       <button (click)="changePage(-1)" [disabled]="currentPage === 1">

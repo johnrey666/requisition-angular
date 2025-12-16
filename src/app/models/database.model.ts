@@ -62,3 +62,26 @@ export interface RequisitionMaterial {
   is_unserved?: boolean;
   created_at: string;
 }
+
+// Add interface for dashboard items
+export interface DashboardRequisition {
+  id: string;
+  skuCode: string;
+  skuName: string;
+  category: string;
+  qtyNeeded: number;
+  supplier: string;
+  qtyPerUnit: string;
+  unit: string;
+  qtyPerPack: string;
+  unit2: string;
+  materials: any[];
+  status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  submittedBy?: string;
+  submittedDate?: Date;
+  reviewedBy?: string;
+  reviewedDate?: Date;
+  approver?: string;
+  approvedDate?: Date;
+  remarks?: string;
+}

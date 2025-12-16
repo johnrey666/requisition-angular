@@ -17,7 +17,6 @@ export class DatabaseService {
     console.log('=== DEBUG: Checking users ===');
     
     try {
-      // Check auth.users (using admin API if available, otherwise try normal)
       const { data: { users }, error: authError } = await this.supabase.auth.admin.listUsers();
       
       if (authError) {
@@ -36,7 +35,6 @@ export class DatabaseService {
         })));
       }
       
-      // Check public.users
       const { data: publicUsers, error: publicError } = await this.supabase
         .from('users')
         .select('*');
@@ -69,7 +67,7 @@ export class DatabaseService {
         };
       }
 
-      await this.supabase.auth.signOut(); // Sign out after test
+      await this.supabase.auth.signOut();
       
       return { 
         success: true, 
@@ -105,8 +103,7 @@ export class DatabaseService {
       if (error) {
         console.error('Error fetching user profile:', error);
         
-        // If user doesn't exist in public.users, create from auth user
-        if (error.code === 'PGRST116') { // No rows returned
+        if (error.code === 'PGRST116') {
           console.log('Creating user profile from auth data');
           return await this.createUserFromAuth(user);
         }
@@ -150,52 +147,46 @@ export class DatabaseService {
     }
   }
 
-// In DatabaseService - update the login method
-async login(email: string, password: string): Promise<{ user: User | null; error: any }> {
-  try {
-    console.log('Login attempt with email:', email);
-    
-    const { data: authData, error: authError } = await this.supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+  async login(email: string, password: string): Promise<{ user: User | null; error: any }> {
+    try {
+      console.log('Login attempt with email:', email);
+      
+      const { data: authData, error: authError } = await this.supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-    if (authError) {
-      console.error('Auth login error:', authError);
-      // Return the error immediately
-      return { user: null, error: authError };
-    }
-
-    console.log('Auth successful, fetching user profile...');
-    
-    // Wait a moment for trigger to create user profile
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Try to get user profile
-    const user = await this.getCurrentUser();
-    
-    if (!user) {
-      console.warn('User profile not found after successful auth');
-      // Try to create user profile manually
-      const createdUser = await this.createUserFromAuth(authData.user);
-      if (createdUser) {
-        return { user: createdUser, error: null };
+      if (authError) {
+        console.error('Auth login error:', authError);
+        return { user: null, error: authError };
       }
-      return { user: null, error: { message: 'User profile not found' } };
-    }
 
-    return { user, error: null };
-  } catch (error: any) {
-    console.error('Login exception:', error);
-    return { user: null, error };
+      console.log('Auth successful, fetching user profile...');
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const user = await this.getCurrentUser();
+      
+      if (!user) {
+        console.warn('User profile not found after successful auth');
+        const createdUser = await this.createUserFromAuth(authData.user);
+        if (createdUser) {
+          return { user: createdUser, error: null };
+        }
+        return { user: null, error: { message: 'User profile not found' } };
+      }
+
+      return { user, error: null };
+    } catch (error: any) {
+      console.error('Login exception:', error);
+      return { user: null, error };
+    }
   }
-}
 
   async loginWithUsername(username: string, password: string): Promise<{ user: User | null; error: any }> {
     try {
       console.log('Login attempt with username:', username);
       
-      // First, find user by username to get email
       const { data: users, error: findError } = await this.supabase
         .from('users')
         .select('email')
@@ -220,7 +211,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
   async logout(): Promise<void> {
     try {
       await this.supabase.auth.signOut();
-      // Clear localStorage
       localStorage.removeItem('currentUser');
       localStorage.removeItem('savedUsername');
     } catch (error) {
@@ -229,37 +219,52 @@ async login(email: string, password: string): Promise<{ user: User | null; error
   }
 
   // ========== MASTER DATA OPERATIONS ==========
-  async uploadMasterData(data: any[]): Promise<{ success: boolean; count: number; error?: any }> {
-    try {
-      const formattedData = data.map(row => ({
-        category: row['CATEGORY'],
-        sku_code: row['SKU CODE'],
-        sku_name: row['SKU'],
-        quantity_per_unit: row['QUANTITY PER UNIT'],
-        unit: row['UNIT'],
-        quantity_per_pack: row['QUANTITY PER PACK'],
-        pack_unit: row['UNIT2'],
-        raw_material: row['RAW MATERIAL'],
-        quantity_per_batch: row['QUANTITY/BATCH'],
-        batch_unit: row['UNIT4'],
-        type: row['TYPE']
-      }));
+ async uploadMasterData(data: any[]): Promise<{ success: boolean; count: number; error?: any }> {
+  try {
+    // Deduplicate rows based on sku_code + raw_material (the conflict keys)
+    const uniqueMap = new Map<string, any>();
 
-      const { error } = await this.supabase
-        .from('master_data')
-        .upsert(formattedData, { onConflict: 'sku_code,raw_material' });
+    data.forEach(row => {
+      const formatted = {
+        category: row['CATEGORY']?.toString().trim() || null, // Allow null
+        sku_code: row['SKU CODE']?.toString().trim() || '',
+        sku_name: row['SKU']?.toString().trim() || '',
+        quantity_per_unit: row['QUANTITY PER UNIT']?.toString().trim() || '',
+        unit: row['UNIT']?.toString().trim() || '',
+        quantity_per_pack: row['QUANTITY PER PACK']?.toString().trim() || '',
+        pack_unit: row['UNIT2']?.toString().trim() || '',
+        raw_material: row['RAW MATERIAL']?.toString().trim() || '',
+        quantity_per_batch: row['QUANTITY/BATCH']?.toString().trim() || '',
+        batch_unit: row['UNIT4']?.toString().trim() || '',
+        type: row['TYPE']?.toString().trim() || ''
+      };
 
-      if (error) {
-        console.error('Master data upload error:', error);
-        return { success: false, count: 0, error };
-      }
+      // Create unique key: sku_code|raw_material
+      const key = `${formatted.sku_code}|${formatted.raw_material}`;
+      
+      // Keep the last occurrence (in case of duplicates with slight differences)
+      uniqueMap.set(key, formatted);
+    });
 
-      return { success: true, count: formattedData.length };
-    } catch (error) {
-      console.error('Master data upload exception:', error);
+    const formattedData = Array.from(uniqueMap.values());
+
+    console.log(`Uploading ${formattedData.length} unique master data rows (deduplicated from ${data.length})`);
+
+    const { error } = await this.supabase
+      .from('master_data')
+      .upsert(formattedData, { onConflict: 'sku_code,raw_material' });
+
+    if (error) {
+      console.error('Master data upload error:', error);
       return { success: false, count: 0, error };
     }
+
+    return { success: true, count: formattedData.length };
+  } catch (error) {
+    console.error('Master data upload exception:', error);
+    return { success: false, count: 0, error };
   }
+}
 
   async getMasterData(): Promise<MasterData[]> {
     try {
@@ -292,8 +297,8 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return [];
       }
 
-      const categories = [...new Set(data.map(item => item.category))];
-      return categories.filter(Boolean);
+      const categories = [...new Set(data.map(item => item.category).filter(Boolean))];
+      return categories.sort();
     } catch (error) {
       console.error('Error in getCategories:', error);
       return [];
@@ -313,15 +318,16 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return [];
       }
 
-      // Remove duplicates
       const map = new Map<string, string>();
       data.forEach(item => {
-        if (!map.has(item.sku_name)) {
-          map.set(item.sku_name, item.sku_code);
+        const name = item.sku_name?.trim();
+        const code = item.sku_code?.trim();
+        if (name && code && !map.has(name)) {
+          map.set(name, code);
         }
       });
 
-      return Array.from(map).map(([name, code]) => ({ name, code }));
+      return Array.from(map, ([name, code]) => ({ name, code }));
     } catch (error) {
       console.error('Error in getSkusByCategory:', error);
       return [];
@@ -329,9 +335,11 @@ async login(email: string, password: string): Promise<{ user: User | null; error
   }
 
   // ========== REQUISITION OPERATIONS ==========
-  async createRequisition(requisitionData: Omit<Requisition, 'id' | 'created_at' | 'updated_at'>, materials: any[]): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
+  async createRequisition(
+    requisitionData: Omit<Requisition, 'id' | 'created_at' | 'updated_at'>,
+    materials: any[]
+  ): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
     try {
-      // Start transaction
       const { data: requisition, error: requisitionError } = await this.supabase
         .from('requisitions')
         .insert([requisitionData])
@@ -343,7 +351,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return { success: false, error: requisitionError };
       }
 
-      // Create materials
       const formattedMaterials = materials.map(material => ({
         requisition_id: requisition.id,
         material_name: material.name,
@@ -363,7 +370,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
 
       if (materialsError) {
         console.error('Materials creation error:', materialsError);
-        // Rollback requisition if materials fail
         await this.supabase.from('requisitions').delete().eq('id', requisition.id);
         return { success: false, error: materialsError };
       }
@@ -402,7 +408,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
 
   async getRequisitionWithMaterials(id: string): Promise<{ requisition: Requisition; materials: RequisitionMaterial[] } | null> {
     try {
-      // Get requisition
       const { data: requisition, error: requisitionError } = await this.supabase
         .from('requisitions')
         .select('*')
@@ -414,7 +419,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return null;
       }
 
-      // Get materials
       const { data: materials, error: materialsError } = await this.supabase
         .from('requisition_materials')
         .select('*')
@@ -466,7 +470,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
 
   async deleteRequisition(id: string): Promise<{ success: boolean; error?: any }> {
     try {
-      // Delete materials first (foreign key constraint)
       const { error: materialsError } = await this.supabase
         .from('requisition_materials')
         .delete()
@@ -477,7 +480,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return { success: false, error: materialsError };
       }
 
-      // Delete requisition
       const { error: requisitionError } = await this.supabase
         .from('requisitions')
         .delete()
@@ -538,7 +540,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return [];
       }
 
-      // Check if current user is admin
       const currentUser = await this.getCurrentUser();
       if (!currentUser || currentUser.role !== 'admin') {
         console.log('User is not admin');
@@ -569,7 +570,6 @@ async login(email: string, password: string): Promise<{ user: User | null; error
         return { success: false, error: { message: 'Not authenticated' } };
       }
 
-      // Check if current user is admin or updating themselves
       const currentUser = await this.getCurrentUser();
       if (!currentUser) {
         return { success: false, error: { message: 'User not found' } };
