@@ -1,6 +1,14 @@
 import { Injectable } from '@angular/core';
 import { SupabaseService } from './supabase.service';
-import { User, MasterData, Requisition, RequisitionMaterial } from '../models/database.model';
+import { 
+  User, 
+  MasterData, 
+  Requisition, 
+  RequisitionMaterial, 
+  DashboardRequisition,
+  UserTable,
+  RawMaterial 
+} from '../models/database.model';
 
 @Injectable({
   providedIn: 'root'
@@ -219,52 +227,52 @@ export class DatabaseService {
   }
 
   // ========== MASTER DATA OPERATIONS ==========
- async uploadMasterData(data: any[]): Promise<{ success: boolean; count: number; error?: any }> {
-  try {
-    // Deduplicate rows based on sku_code + raw_material (the conflict keys)
-    const uniqueMap = new Map<string, any>();
+  async uploadMasterData(data: any[]): Promise<{ success: boolean; count: number; error?: any }> {
+    try {
+      // Deduplicate rows based on sku_code + raw_material (the conflict keys)
+      const uniqueMap = new Map<string, any>();
 
-    data.forEach(row => {
-      const formatted = {
-        category: row['CATEGORY']?.toString().trim() || null, // Allow null
-        sku_code: row['SKU CODE']?.toString().trim() || '',
-        sku_name: row['SKU']?.toString().trim() || '',
-        quantity_per_unit: row['QUANTITY PER UNIT']?.toString().trim() || '',
-        unit: row['UNIT']?.toString().trim() || '',
-        quantity_per_pack: row['QUANTITY PER PACK']?.toString().trim() || '',
-        pack_unit: row['UNIT2']?.toString().trim() || '',
-        raw_material: row['RAW MATERIAL']?.toString().trim() || '',
-        quantity_per_batch: row['QUANTITY/BATCH']?.toString().trim() || '',
-        batch_unit: row['UNIT4']?.toString().trim() || '',
-        type: row['TYPE']?.toString().trim() || ''
-      };
+      data.forEach(row => {
+        const formatted = {
+          category: row['CATEGORY']?.toString().trim() || null, // Allow null
+          sku_code: row['SKU CODE']?.toString().trim() || '',
+          sku_name: row['SKU']?.toString().trim() || '',
+          quantity_per_unit: row['QUANTITY PER UNIT']?.toString().trim() || '',
+          unit: row['UNIT']?.toString().trim() || '',
+          quantity_per_pack: row['QUANTITY PER PACK']?.toString().trim() || '',
+          pack_unit: row['UNIT2']?.toString().trim() || '',
+          raw_material: row['RAW MATERIAL']?.toString().trim() || '',
+          quantity_per_batch: row['QUANTITY/BATCH']?.toString().trim() || '',
+          batch_unit: row['UNIT4']?.toString().trim() || '',
+          type: row['TYPE']?.toString().trim() || ''
+        };
 
-      // Create unique key: sku_code|raw_material
-      const key = `${formatted.sku_code}|${formatted.raw_material}`;
-      
-      // Keep the last occurrence (in case of duplicates with slight differences)
-      uniqueMap.set(key, formatted);
-    });
+        // Create unique key: sku_code|raw_material
+        const key = `${formatted.sku_code}|${formatted.raw_material}`;
+        
+        // Keep the last occurrence (in case of duplicates with slight differences)
+        uniqueMap.set(key, formatted);
+      });
 
-    const formattedData = Array.from(uniqueMap.values());
+      const formattedData = Array.from(uniqueMap.values());
 
-    console.log(`Uploading ${formattedData.length} unique master data rows (deduplicated from ${data.length})`);
+      console.log(`Uploading ${formattedData.length} unique master data rows (deduplicated from ${data.length})`);
 
-    const { error } = await this.supabase
-      .from('master_data')
-      .upsert(formattedData, { onConflict: 'sku_code,raw_material' });
+      const { error } = await this.supabase
+        .from('master_data')
+        .upsert(formattedData, { onConflict: 'sku_code,raw_material' });
 
-    if (error) {
-      console.error('Master data upload error:', error);
+      if (error) {
+        console.error('Master data upload error:', error);
+        return { success: false, count: 0, error };
+      }
+
+      return { success: true, count: formattedData.length };
+    } catch (error) {
+      console.error('Master data upload exception:', error);
       return { success: false, count: 0, error };
     }
-
-    return { success: true, count: formattedData.length };
-  } catch (error) {
-    console.error('Master data upload exception:', error);
-    return { success: false, count: 0, error };
   }
-}
 
   async getMasterData(): Promise<MasterData[]> {
     try {
@@ -337,12 +345,18 @@ export class DatabaseService {
   // ========== REQUISITION OPERATIONS ==========
   async createRequisition(
     requisitionData: Omit<Requisition, 'id' | 'created_at' | 'updated_at'>,
-    materials: any[]
+    materials: any[],
+    tableId?: string
   ): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
     try {
+      const requisitionWithTable = {
+        ...requisitionData,
+        table_id: tableId
+      };
+
       const { data: requisition, error: requisitionError } = await this.supabase
         .from('requisitions')
-        .insert([requisitionData])
+        .insert([requisitionWithTable])
         .select()
         .single();
 
@@ -381,6 +395,70 @@ export class DatabaseService {
     }
   }
 
+  async updateRequisition(
+    id: string,
+    requisitionData: Partial<Requisition>,
+    materials?: any[]
+  ): Promise<{ success: boolean; error?: any }> {
+    try {
+      // Update requisition
+      const { error: requisitionError } = await this.supabase
+        .from('requisitions')
+        .update({
+          ...requisitionData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (requisitionError) {
+        console.error('Requisition update error:', requisitionError);
+        return { success: false, error: requisitionError };
+      }
+
+      // Update materials if provided
+      if (materials && materials.length > 0) {
+        // First, delete existing materials
+        const { error: deleteError } = await this.supabase
+          .from('requisition_materials')
+          .delete()
+          .eq('requisition_id', id);
+
+        if (deleteError) {
+          console.error('Error deleting existing materials:', deleteError);
+          return { success: false, error: deleteError };
+        }
+
+        // Then insert updated materials
+        const formattedMaterials = materials.map(material => ({
+          requisition_id: id,
+          material_name: material.name,
+          qty_per_batch: material.qty,
+          unit: material.unit,
+          type: material.type,
+          required_qty: material.requiredQty,
+          served_qty: material.servedQty || 0,
+          remarks: material.remarks || '',
+          served_date: material.servedDate,
+          is_unserved: material.isUnserved || false
+        }));
+
+        const { error: materialsError } = await this.supabase
+          .from('requisition_materials')
+          .insert(formattedMaterials);
+
+        if (materialsError) {
+          console.error('Materials update error:', materialsError);
+          return { success: false, error: materialsError };
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error in updateRequisition:', error);
+      return { success: false, error };
+    }
+  }
+
   async getRequisitions(userId?: string): Promise<Requisition[]> {
     try {
       let query = this.supabase
@@ -402,6 +480,75 @@ export class DatabaseService {
       return data || [];
     } catch (error) {
       console.error('Error in getRequisitions:', error);
+      return [];
+    }
+  }
+
+  async getTableRequisitions(tableId: string): Promise<DashboardRequisition[]> {
+    try {
+      const { data: requisitions, error: requisitionsError } = await this.supabase
+        .from('requisitions')
+        .select('*')
+        .eq('table_id', tableId)
+        .order('created_at', { ascending: false });
+
+      if (requisitionsError) {
+        console.error('Error fetching table requisitions:', requisitionsError);
+        return [];
+      }
+
+      const requisitionItems: DashboardRequisition[] = [];
+
+      for (const req of requisitions || []) {
+        const { data: materials, error: materialsError } = await this.supabase
+          .from('requisition_materials')
+          .select('*')
+          .eq('requisition_id', req.id);
+
+        if (materialsError) {
+          console.error('Error fetching materials for requisition:', materialsError);
+          continue;
+        }
+
+        const formattedMaterials: RawMaterial[] = (materials || []).map(m => ({
+          name: m.material_name,
+          qty: m.qty_per_batch,
+          unit: m.unit,
+          type: m.type,
+          requiredQty: m.required_qty,
+          servedQty: m.served_qty,
+          remarks: m.remarks,
+          servedDate: m.served_date ? new Date(m.served_date) : undefined,
+          isUnserved: m.is_unserved
+        }));
+
+        requisitionItems.push({
+          id: req.id,
+          skuCode: req.sku_code,
+          skuName: req.sku_name,
+          category: req.category,
+          qtyNeeded: req.qty_needed,
+          supplier: req.supplier,
+          qtyPerUnit: req.qty_per_unit,
+          unit: req.unit,
+          qtyPerPack: req.qty_per_pack,
+          unit2: req.pack_unit,
+          materials: formattedMaterials,
+          status: req.status,
+          submittedBy: req.submitted_by,
+          submittedDate: req.submitted_date ? new Date(req.submitted_date) : undefined,
+          reviewedBy: req.reviewed_by,
+          reviewedDate: req.reviewed_date ? new Date(req.reviewed_date) : undefined,
+          approvedBy: req.approver,
+          approvedDate: req.approved_date ? new Date(req.approved_date) : undefined,
+          remarks: req.remarks,
+          tableId: req.table_id
+        });
+      }
+
+      return requisitionItems;
+    } catch (error) {
+      console.error('Error in getTableRequisitions:', error);
       return [];
     }
   }
@@ -434,23 +581,6 @@ export class DatabaseService {
     } catch (error) {
       console.error('Error in getRequisitionWithMaterials:', error);
       return null;
-    }
-  }
-
-  async updateRequisition(id: string, updates: Partial<Requisition>): Promise<{ success: boolean; error?: any }> {
-    try {
-      const { error } = await this.supabase
-        .from('requisitions')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      return { success: !error, error };
-    } catch (error) {
-      console.error('Error in updateRequisition:', error);
-      return { success: false, error };
     }
   }
 
@@ -488,6 +618,300 @@ export class DatabaseService {
       return { success: !requisitionError, error: requisitionError };
     } catch (error) {
       console.error('Error in deleteRequisition:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== TABLE MANAGEMENT OPERATIONS ==========
+  async getUserTables(userId: string): Promise<UserTable[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('user_tables')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching user tables:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getUserTables:', error);
+      return [];
+    }
+  }
+
+  async getTableById(tableId: string): Promise<UserTable | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('user_tables')
+        .select('*')
+        .eq('id', tableId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching table by ID:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in getTableById:', error);
+      return null;
+    }
+  }
+
+  async createUserTable(tableData: Omit<UserTable, 'id' | 'created_at' | 'updated_at'>): 
+    Promise<{ success: boolean; tableId?: string; error?: any }> {
+    try {
+      const { data, error } = await this.supabase
+        .from('user_tables')
+        .insert([{
+          ...tableData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating user table:', error);
+        return { success: false, error };
+      }
+
+      return { success: true, tableId: data.id };
+    } catch (error) {
+      console.error('Error in createUserTable:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateTableName(tableId: string, newName: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          name: newName,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tableId);
+
+      return { success: !error, error };
+    } catch (error) {
+      console.error('Error in updateTableName:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateTableItemCount(tableId: string, itemCount: number): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          item_count: itemCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tableId);
+
+      return { success: !error, error };
+    } catch (error) {
+      console.error('Error in updateTableItemCount:', error);
+      return { success: false, error };
+    }
+  }
+
+  async deleteTable(tableId: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      // First delete all requisitions in this table
+      const { error: requisitionsError } = await this.supabase
+        .from('requisitions')
+        .delete()
+        .eq('table_id', tableId);
+
+      if (requisitionsError) {
+        console.error('Error deleting table requisitions:', requisitionsError);
+        return { success: false, error: requisitionsError };
+      }
+
+      // Then delete the table
+      const { error: tableError } = await this.supabase
+        .from('user_tables')
+        .delete()
+        .eq('id', tableId);
+
+      return { success: !tableError, error: tableError };
+    } catch (error) {
+      console.error('Error in deleteTable:', error);
+      return { success: false, error };
+    }
+  }
+
+  async submitTableForApproval(tableId: string, submittedBy: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          status: 'submitted',
+          submitted_by: submittedBy,
+          submitted_date: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tableId);
+
+      if (error) {
+        console.error('Error submitting table for approval:', error);
+        return { success: false, error };
+      }
+
+      // Also update all requisitions in this table
+      const { error: requisitionsError } = await this.supabase
+        .from('requisitions')
+        .update({
+          status: 'submitted',
+          submitted_by: submittedBy,
+          submitted_date: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'draft');
+
+      if (requisitionsError) {
+        console.error('Error updating requisitions status:', requisitionsError);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error in submitTableForApproval:', error);
+      return { success: false, error };
+    }
+  }
+
+  async getPendingApprovals(): Promise<UserTable[]> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser();
+      if (!user) {
+        return [];
+      }
+
+      const currentUser = await this.getCurrentUser();
+      if (!currentUser || currentUser.role !== 'admin') {
+        return [];
+      }
+
+      const { data, error } = await this.supabase
+        .from('user_tables')
+        .select('*')
+        .eq('status', 'submitted')
+        .order('submitted_date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching pending approvals:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getPendingApprovals:', error);
+      return [];
+    }
+  }
+
+  async approveTable(tableId: string, approvedBy: string, remarks?: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          status: 'approved',
+          approved_by: approvedBy,
+          approved_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('id', tableId);
+
+      if (error) {
+        console.error('Error approving table:', error);
+        return { success: false, error };
+      }
+
+      // Also update all requisitions in this table
+      const { error: requisitionsError } = await this.supabase
+        .from('requisitions')
+        .update({
+          status: 'approved',
+          approved_by: approvedBy,
+          approved_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'submitted');
+
+      if (requisitionsError) {
+        console.error('Error updating requisitions status:', requisitionsError);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error in approveTable:', error);
+      return { success: false, error };
+    }
+  }
+
+  async rejectTable(tableId: string, reviewedBy: string, remarks: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          status: 'rejected',
+          reviewed_by: reviewedBy,
+          reviewed_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('id', tableId);
+
+      if (error) {
+        console.error('Error rejecting table:', error);
+        return { success: false, error };
+      }
+
+      // Also update all requisitions in this table
+      const { error: requisitionsError } = await this.supabase
+        .from('requisitions')
+        .update({
+          status: 'rejected',
+          reviewed_by: reviewedBy,
+          reviewed_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'submitted');
+
+      if (requisitionsError) {
+        console.error('Error updating requisitions status:', requisitionsError);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error in rejectTable:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateTableItems(tableId: string, items: DashboardRequisition[], fileName?: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      console.log(`Updating ${items.length} items for table ${tableId}`);
+      
+      // Update table item count
+      await this.updateTableItemCount(tableId, items.length);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error in updateTableItems:', error);
       return { success: false, error };
     }
   }

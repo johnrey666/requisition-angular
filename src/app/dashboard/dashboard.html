@@ -1,190 +1,405 @@
 <div class="dashboard-container">
+  <!-- Compact Header with Notifications -->
   <div class="header">
     <div class="header-left">
-      <h2><i class="fas fa-industry"></i> Raw Material E-Portal</h2>
+      <div class="app-title">
+        <i class="fas fa-industry"></i>
+        <span class="app-name">Raw Material E-Portal</span>
+        <span class="app-version">v2.1</span>
+      </div>
       <div class="user-info">
-        <span class="user-role" [class.admin]="isAdmin" [class.user]="!isAdmin">
+        <div class="user-badge">
           <i class="fas" [class.fa-user-shield]="isAdmin" [class.fa-user]="!isAdmin"></i>
-          {{ currentUser?.full_name || currentUser?.username || currentUser?.email }}
-          <span class="role-badge">{{ isAdmin ? 'Admin' : 'User' }}</span>
-        </span>
+          <div class="user-details">
+            <span class="user-name">
+              @if (currentUser?.full_name) {
+                {{ currentUser.full_name.length > 20 ? (currentUser.full_name | slice:0:20) + '...' : currentUser.full_name }}
+              } @else if (currentUser?.username) {
+                {{ currentUser.username.length > 20 ? (currentUser.username | slice:0:20) + '...' : currentUser.username }}
+              } @else if (currentUser?.email) {
+                {{ currentUser.email.length > 20 ? (currentUser.email | slice:0:20) + '...' : currentUser.email }}
+              } @else {
+                User
+              }
+            </span>
+            <span class="role-label">{{ isAdmin ? 'Administrator' : 'Standard User' }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="header-actions">
-      <button id="darkModeBtn" (click)="toggleDarkMode()" [title]="darkMode ? 'Light Mode' : 'Dark Mode'">
-        <i class="fas" [class.fa-sun]="darkMode" [class.fa-moon]="!darkMode"></i>
-      </button>
-      <button id="printBtn" (click)="window.print()" title="Print Table">
-        <i class="fas fa-print"></i>
-      </button>
-      <button id="logoutBtn" (click)="logout()" title="Logout">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </button>
-    </div>
-  </div>
-
-  <div class="upload-section">
-    <div class="upload-box">
-      <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls"
-             (change)="onFileUpload($event)" style="display: none">
-      <button class="btn-upload" (click)="masterFileInput.click()">
-        <i class="fas fa-upload"></i> Upload Master File
-      </button>
-      <span class="upload-status" [class.has-file]="uploadedFileName">
-        {{ uploadedFileName || 'No file uploaded' }}
-      </span>
-      @if (uploadedFileName) {
-        <button class="btn-clear-file" (click)="clearFile()" title="Clear uploaded file">
-          <i class="fas fa-times"></i>
+      <!-- Admin Notification Badge -->
+      @if (isAdmin && pendingApprovalsCount > 0) {
+        <div class="notification-badge" (click)="viewPendingApprovals()" title="View Pending Approvals">
+          <i class="fas fa-bell"></i>
+          <span class="notification-count">{{ pendingApprovalsCount }}</span>
+        </div>
+      }
+      
+      <!-- Add User Button (Admin Only) -->
+      @if (isAdmin) {
+        <button class="btn-sm btn-success" (click)="showAddUserModal = true" title="Add User" style="margin-right: 8px;">
+          <i class="fas fa-user-plus"></i> Add User
         </button>
       }
-
-      <div class="cloud-section">
-        <button id="configBtn" title="View Config">
-          <i class="fas fa-cog"></i>
-        </button>
-
-        <button id="syncBtn" (click)="toggleSync()"
-                [class.synced]="isSyncEnabled" [class.offline]="!isSyncEnabled"
-                [title]="isSyncEnabled ? 'Disable cloud sync' : 'Enable cloud sync'">
-          <i class="fas" [class.fa-cloud-upload-alt]="isSyncEnabled" [class.fa-cloud-slash]="!isSyncEnabled"></i>
-          <span>{{ isSyncEnabled ? 'Synced' : 'Offline' }}</span>
-        </button>
-
-        <button id="restoreBtn" (click)="restoreFromCloud()" title="Restore from cloud">
-          <i class="fas fa-cloud-download-alt"></i>
-          <span>Restore</span>
-        </button>
-
-        <span class="sync-status">{{ syncStatus }}</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="controls-section">
-    <div class="form-controls">
-      <form [formGroup]="requisitionForm" class="form-row">
-        <select id="categorySelect"
-                formControlName="category"
-                (change)="onCategoryChange()"
-                class="form-select">
-          <option value="">-- Category --</option>
-          @for (category of categories; track category) {
-            <option [value]="category">{{ category }}</option>
-          }
-        </select>
-
-        <select id="skuSelect"
-                formControlName="sku"
-                (change)="onSkuChange()"
-                [disabled]="skus.length === 0"
-                class="form-select">
-          <option value="">-- SKU --</option>
-          @for (sku of skus; track sku.code) {
-            <option [value]="sku.name">{{ sku.name }} ({{ sku.code }})</option>
-          }
-        </select>
-
-        <input type="text"
-               formControlName="skuCode"
-               placeholder="Code"
-               readonly
-               class="form-input">
-
-        <input type="text"
-               formControlName="supplier"
-               placeholder="Supplier"
-               class="form-input">
-
-        <button type="button"
-                (click)="addRequisition()"
-                [disabled]="requisitionForm.invalid"
-                class="btn-primary">
-          <i class="fas fa-plus"></i> Add
-        </button>
-      </form>
-    </div>
-
-    <div class="action-controls">
-      <div class="search-box">
-        <i class="fas fa-search"></i>
-        <input type="text" id="searchInput" [(ngModel)]="searchQuery"
-               (ngModelChange)="onSearch()" placeholder="Search Code/SKU/Category..."
-               class="search-input">
-      </div>
-
-      <div class="export-dropdown">
-        <button class="btn-export" (click)="toggleExportDropdown()"
-                [disabled]="requisitionItems.length === 0">
-          <i class="fas fa-download"></i> Export
-        </button>
-
-        @if (isExportDropdownOpen) {
-          <div class="export-options">
-            <button (click)="exportData('all')">
-              <i class="fas fa-file-excel"></i> Export All Data
-            </button>
-            <button (click)="exportData('pre-mix')">
-              <i class="fas fa-flask"></i> Export Pre-mix Only
-            </button>
-            <button (click)="exportData('packaging')">
-              <i class="fas fa-box"></i> Export Packaging Only
-            </button>
-            <button (click)="exportData('meat-veg')">
-              <i class="fas fa-carrot"></i> Export Meat & Vegetables Only
-            </button>
-          </div>
-        }
-      </div>
-
-      <button id="clearBtn" (click)="clearAll()" class="btn-danger">
-        <i class="fas fa-trash"></i> Clear All
+      
+      <button class="icon-btn" (click)="toggleDarkMode()" [title]="darkMode ? 'Switch to Light' : 'Switch to Dark'">
+        <i class="fas" [class.fa-sun]="darkMode" [class.fa-moon]="!darkMode"></i>
+      </button>
+      <button class="icon-btn" (click)="window.print()" title="Print Report">
+        <i class="fas fa-print"></i>
+      </button>
+      <button class="logout-btn" (click)="logout()" title="Sign Out">
+        <i class="fas fa-sign-out-alt"></i>
       </button>
     </div>
   </div>
 
-  @if (!isSubmissionAllowed) {
-    <div class="cutoff-warning">
+  <!-- SINGLE ROW CONTROLS (Removed category/sku/code/supplier/add from here) -->
+  <div class="single-row-controls">
+    <!-- Table Management -->
+    <div class="control-section">
+      <div class="table-management-compact">
+        <select class="form-select-sm" [(ngModel)]="selectedTableId" (change)="loadTableData()">
+          <option value="">-- Select Table --</option>
+          @for (table of userTables; track table.id) {
+            <option [value]="table.id">{{ table.name }}</option>
+          }
+        </select>
+        
+        <button class="btn-sm btn-icon" (click)="createNewTable()" title="New Table">
+          <i class="fas fa-plus"></i>
+        </button>
+        
+        <button class="btn-sm btn-icon" [disabled]="!selectedTableId" (click)="renameTable()" title="Rename">
+          <i class="fas fa-edit"></i>
+        </button>
+        
+        <button class="btn-sm btn-danger" [disabled]="!selectedTableId" (click)="deleteTable()" title="Delete">
+          <i class="fas fa-trash"></i>
+        </button>
+        
+        @if (selectedTableId && isTableSubmissionAllowed()) {
+          @if (currentTable?.status === 'rejected') {
+            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="resubmitTable()" title="Resubmit Table">
+              <i class="fas fa-redo"></i>
+            </button>
+          } @else if (currentTable?.status === 'draft') {
+            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="submitTableForApproval()" title="Submit Table">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          }
+        }
+      </div>
+    </div>
+
+    <!-- Master File Upload -->
+    <div class="control-section">
+      <div class="file-upload-compact">
+        <button class="btn-sm btn-icon" (click)="masterFileInput.click()" title="Upload Master File">
+          <i class="fas fa-upload"></i> Master File
+        </button>
+        <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls"
+               (change)="onFileUpload($event)" style="display: none">
+        <span class="file-status-sm" [class.has-file]="uploadedFileName" title="{{uploadedFileName || 'No file'}}">
+          @if (uploadedFileName) {
+            {{ uploadedFileName.length > 18 ? (uploadedFileName | slice:0:15) + '...' : uploadedFileName }}
+          }
+        </span>
+        @if (uploadedFileName) {
+          <button class="btn-clear-sm" (click)="clearFile()" title="Clear">
+            <i class="fas fa-times"></i>
+          </button>
+        }
+      </div>
+    </div>
+
+    <!-- Actions (Export & Clear only) -->
+    <div class="control-section">
+      <div class="action-buttons-compact">
+        <div class="dropdown">
+          <button class="btn-sm btn-icon" 
+                  [disabled]="requisitionItems.length === 0 || !isExportEnabled()" 
+                  (click)="toggleExportDropdown()"
+                  title="Export">
+            <i class="fas fa-download"></i> Export
+          </button>
+          @if (isExportDropdownOpen && isExportEnabled()) {
+            <div class="dropdown-menu">
+              <button (click)="exportData('all')"><i class="fas fa-file-excel"></i> All Data</button>
+              <button (click)="exportData('pre-mix')"><i class="fas fa-flask"></i> Pre-mix</button>
+              <button (click)="exportData('packaging')"><i class="fas fa-box"></i> Packaging</button>
+              <button (click)="exportData('meat-veg')"><i class="fas fa-carrot"></i> Meat & Veg</button>
+            </div>
+          }
+        </div>
+
+        <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId || !isTableEditable()" title="Clear Table">
+          <i class="fas fa-trash"></i> Clear
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  @if (currentTable?.status === 'submitted') {
+    <div class="status-bar info">
+      <i class="fas fa-hourglass-half"></i>
+      <span>This table is submitted for approval (Submitted by {{ currentTable?.submittedBy }} on {{ currentTable?.submittedDate | date:'medium' }})</span>
+    </div>
+  }
+  @if (currentTable?.status === 'approved') {
+    <div class="status-bar success">
+      <i class="fas fa-check-circle"></i>
+      <span>This table is approved (Approved by {{ currentTable?.approvedBy }} on {{ currentTable?.approvedDate | date:'medium' }})</span>
+    </div>
+  }
+  @if (currentTable?.status === 'rejected') {
+    <div class="status-bar warning">
+      <i class="fas fa-times-circle"></i>
+      <span>This table is rejected (Rejected by {{ currentTable?.reviewedBy }} on {{ currentTable?.reviewedDate | date:'medium' }})</span>
+      @if (currentTable?.remarks) {
+        <span class="remarks">Reason: {{ currentTable?.remarks }}</span>
+      }
+    </div>
+  }
+  
+  @if (!isSubmissionAllowed && currentTable?.status === 'draft') {
+    <div class="status-bar warning">
       <i class="fas fa-clock"></i>
-      <span>Submission is currently disabled. Next submission window: Tomorrow 08:00 AM</span>
+      <span>Submission is currently disabled • Next window: Tomorrow 08:00</span>
+    </div>
+  }
+  
+  <div class="status-bar">
+    <span class="stats">
+      <i class="fas fa-table"></i> {{ currentTable?.name || 'No table selected' }}
+      <span class="divider">•</span>
+      <i class="fas fa-cube"></i> {{ filteredItems.length }} items
+      <span class="divider">•</span>
+      <i class="fas fa-database"></i> Auto-saved
+    </span>
+    @if (requisitionItems.length > itemsPerPage) {
+      <span class="pagination-mini">
+        <button class="btn-xs" (click)="changePage(-1)" [disabled]="currentPage === 1">
+          <i class="fas fa-chevron-left"></i>
+        </button>
+        <span>Page {{ currentPage }}/{{ totalPages }}</span>
+        <button class="btn-xs" (click)="changePage(1)" [disabled]="currentPage === totalPages">
+          <i class="fas fa-chevron-right"></i>
+        </button>
+      </span>
+    }
+  </div>
+
+  <!-- Admin Approval Panel (Modal) -->
+  @if (showApprovalPanel && isAdmin) {
+    <div class="modal-overlay" (click)="closeApprovalPanel()">
+      <div class="modal-content" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-tasks"></i> Pending Approvals ({{ pendingApprovalsCount }})</h3>
+          <button class="modal-close" (click)="closeApprovalPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          @if (pendingApprovals.length === 0) {
+            <div class="empty-approvals">
+              <i class="fas fa-check-circle"></i>
+              <p>No pending approvals</p>
+            </div>
+          } @else {
+            <div class="approval-list">
+              @for (table of pendingApprovals; track table.id) {
+                <div class="approval-item">
+                  <div class="approval-info">
+                    <strong>{{ table.name }}</strong>
+                    <div class="approval-details">
+                      <span>Submitted by: {{ table.submittedBy }}</span>
+                      <span>Date: {{ table.submittedDate | date:'medium' }}</span>
+                      <span>Items: {{ table.itemCount }}</span>
+                    </div>
+                  </div>
+                  <div class="approval-actions">
+                    <button class="btn-xs btn-primary" (click)="viewTableDetails(table.id)">
+                      <i class="fas fa-eye"></i> View
+                    </button>
+                    <button class="btn-xs btn-success" (click)="approveTable(table.id)">
+                      <i class="fas fa-check"></i> Approve
+                    </button>
+                    <button class="btn-xs btn-danger" (click)="rejectTable(table.id)">
+                      <i class="fas fa-times"></i> Reject
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
     </div>
   }
 
-  <div class="table-container">
-    <table class="main-table">
+  <!-- Add User Modal -->
+  @if (showAddUserModal && isAdmin) {
+    <div class="modal-overlay" (click)="closeAddUserModal()">
+      <div class="modal-content" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-user-plus"></i> Add New User</h3>
+          <button class="modal-close" (click)="closeAddUserModal()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="add-user-form">
+            <!-- Full Name (full width) -->
+            <div class="form-group full-width">
+              <label>Full Name *</label>
+              <input type="text" [(ngModel)]="newUser.full_name" 
+                     class="form-input" placeholder="Enter full name">
+            </div>
+            
+            <!-- Username & Email (side by side) -->
+            <div class="form-row">
+              <div class="form-group">
+                <label>Username *</label>
+                <input type="text" [(ngModel)]="newUser.username" 
+                       class="form-input" placeholder="Enter username">
+              </div>
+              <div class="form-group">
+                <label>Email *</label>
+                <input type="email" [(ngModel)]="newUser.email" 
+                       class="form-input" placeholder="Enter email">
+              </div>
+            </div>
+            
+            <!-- Password & Role (side by side) -->
+            <div class="form-row">
+              <div class="form-group">
+                <label>Password *</label>
+                <input type="password" [(ngModel)]="newUser.password" 
+                       class="form-input" placeholder="Enter password">
+              </div>
+              <div class="form-group">
+                <label>Role *</label>
+                <select [(ngModel)]="newUser.role" class="form-select">
+                  <option value="user">Standard User</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-actions">
+              <button class="btn-sm btn-danger" (click)="closeAddUserModal()">Cancel</button>
+              <button class="btn-sm btn-primary" (click)="createNewUser()" 
+                      [disabled]="!isNewUserFormValid()">
+                Create User
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Compact Table with Controls in Header -->
+  <div class="table-container-compact">
+    <table class="compact-table">
       <thead>
         <tr>
-          <th style="width:40px;"></th>
-          <th class="sortable" (click)="sortBy('skuCode')" [class.sort-asc]="sortField === 'skuCode' && sortAsc" [class.sort-desc]="sortField === 'skuCode' && !sortAsc">
-            Code <i class="fas fa-sort sort-icon"></i>
+          <th colspan="11" class="table-header-with-controls">
+            <div class="table-controls-row">
+              <!-- Left: Table Title -->
+              <div class="table-title-section">
+                <div class="table-title">
+                  <i class="fas fa-list"></i> Requisition Items
+                </div>
+              </div>
+              
+              <!-- Center: Quick Add Form (category, sku, code, supplier, add) -->
+              <div class="table-controls-section">
+                <div class="quick-add-form" [formGroup]="requisitionForm">
+                  <select class="form-select-xs" formControlName="category" (change)="onCategoryChange()" title="Category">
+                    <option value="">Category</option>
+                    @for (category of categories; track category) {
+                      <option [value]="category">
+                        @if (category && category.length > 12) {
+                          {{ category | slice:0:12 }}...
+                        } @else {
+                          {{ category }}
+                        }
+                      </option>
+                    }
+                  </select>
+
+                  <select class="form-select-xs" formControlName="sku" (change)="onSkuChange()" [disabled]="skus.length === 0" title="SKU">
+                    <option value="">SKU</option>
+                    @for (sku of skus; track sku.code) {
+                      <option [value]="sku.name">
+                        @if (sku.name && sku.name.length > 12) {
+                          {{ sku.name | slice:0:12 }}...
+                        } @else {
+                          {{ sku.name }}
+                        }
+                      </option>
+                    }
+                  </select>
+
+                  <input class="form-input-xs" type="text" formControlName="skuCode" placeholder="Code" readonly title="SKU Code">
+
+                  <input class="form-input-xs" type="text" formControlName="supplier" placeholder="Supplier" title="Supplier">
+
+                  <button class="btn-xs btn-primary" (click)="addRequisition()" [disabled]="requisitionForm.invalid || !selectedTableId || !isTableEditable()" title="Add Item">
+                    <i class="fas fa-plus"></i> Add
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Right: Search Box -->
+              <div class="table-search-section">
+                <div class="table-search-box">
+                  <i class="fas fa-search"></i>
+                  <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="onSearch()" 
+                         placeholder="Search items..." class="table-search-input">
+                  <div class="search-actions">
+                    <button class="btn-xs btn-icon" (click)="onSearch()" title="Search">
+                      <i class="fas fa-search"></i>
+                    </button>
+                    @if (searchQuery) {
+                      <button class="btn-xs btn-icon" (click)="searchQuery = ''; onSearch()" title="Clear Search">
+                        <i class="fas fa-times"></i>
+                      </button>
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
           </th>
-          <th class="sortable" (click)="sortBy('skuName')" [class.sort-asc]="sortField === 'skuName' && sortAsc" [class.sort-desc]="sortField === 'skuName' && !sortAsc">
-            SKU <i class="fas fa-sort sort-icon"></i>
-          </th>
-          <th class="sortable" (click)="sortBy('category')" [class.sort-asc]="sortField === 'category' && sortAsc" [class.sort-desc]="sortField === 'category' && !sortAsc">
-            Category <i class="fas fa-sort sort-icon"></i>
-          </th>
-          <th style="width:80px;">Qty</th>
-          <th style="width:140px;">Supplier</th>
-          <th style="width:90px;">Qty/Unit</th>
-          <th style="width:70px;">Unit</th>
-          <th style="width:90px;">Qty/Pack</th>
-          <th style="width:70px;">Pack Unit</th>
-          <th style="width:60px;">Mats</th>
-          <th style="width:120px;">Status</th>
-          <th style="width:80px;">Actions</th>
+        </tr>
+        <tr>
+          <th style="width:28px;"></th>
+          <th style="width:70px;" class="sortable" (click)="sortBy('skuCode')">Code</th>
+          <th style="width:120px;" class="sortable" (click)="sortBy('skuName')">SKU</th>
+          <th style="width:90px;" class="sortable" (click)="sortBy('category')">Category</th>
+          <th style="width:60px;">Qty</th>
+          <th style="width:100px;">Supplier</th>
+          <th style="width:65px;">Qty/Unit</th>
+          <th style="width:50px;">Unit</th>
+          <th style="width:45px;">Mats</th>
+          <th style="width:90px;">Status</th>
+          <th style="width:70px;">Actions</th>
         </tr>
       </thead>
       <tbody>
         @if (filteredItems.length === 0) {
-          <tr class="no-data">
-            <td colspan="13">
-              <div class="empty-state">
+          <tr class="empty-row">
+            <td colspan="11">
+              <div class="empty-state-compact">
                 <i class="fas fa-inbox"></i>
-                <p>{{ searchQuery ? 'No results found' : 'No requisitions added yet' }}</p>
-                @if (!uploadedFileName) {
-                  <p class="upload-hint">Upload a master file to start adding requisitions</p>
+                <p>{{ searchQuery ? 'No matching items found' : 'No requisitions added yet' }}</p>
+                @if (!selectedTableId) {
+                  <p class="empty-hint">Select or create a table to start adding requisitions</p>
                 }
               </div>
             </td>
@@ -194,157 +409,130 @@
         @for (item of filteredItems; track item.id; let i = $index) {
           <tr [class.expanded]="expandedRows.has(item.id)">
             <td>
-              <button class="toggle-btn" (click)="toggleRow(item.id)"
-                      [title]="expandedRows.has(item.id) ? 'Collapse' : 'Expand'">
+              <button class="toggle-btn-sm" (click)="toggleRow(item.id)">
                 <i class="fas" [class.fa-chevron-up]="expandedRows.has(item.id)" [class.fa-chevron-down]="!expandedRows.has(item.id)"></i>
               </button>
             </td>
             <td><strong>{{ item.skuCode }}</strong></td>
-            <td>{{ item.skuName }}</td>
-            <td><span class="category-badge">{{ item.category }}</span></td>
+            <td class="truncate">
+              @if (item.skuName && item.skuName.length > 20) {
+                {{ item.skuName | slice:0:20 }}...
+              } @else {
+                {{ item.skuName }}
+              }
+            </td>
+            <td><span class="category-tag">{{ item.category || 'Uncategorized' }}</span></td>
             <td>
-              <input type="number" class="qty-input" min="1" max="99"
+              <input type="number" class="qty-input-sm" min="1" max="99"
                      [value]="item.qtyNeeded"
                      (change)="updateQty(item.id, $any($event.target).value)"
-                     [disabled]="item.status !== 'draft'">
+                     [disabled]="item.status !== 'draft' || !isTableEditable()">
             </td>
             <td>
-              <input type="text" class="supplier-input"
-                     [value]="item.supplier"
+              <input type="text" class="supplier-input-sm"
+                     [value]="item.supplier || ''"
                      (change)="updateSupplier(item.id, $any($event.target).value)"
-                     placeholder="Enter supplier"
-                     [disabled]="item.status !== 'draft'">
+                     placeholder="Supplier"
+                     [disabled]="item.status !== 'draft' || !isTableEditable()">
             </td>
             <td class="numeric">{{ item.qtyPerUnit || '-' }}</td>
-            <td>{{ item.unit || '-' }}</td>
-            <td class="numeric">{{ item.qtyPerPack || '-' }}</td>
-            <td>{{ item.unit2 || '-' }}</td>
-            <td class="numeric">{{ item.materials.length }}</td>
+            <td class="unit">{{ item.unit || '-' }}</td>
+            <td class="numeric">{{ item.materials ? item.materials.length : 0 }}</td>
             <td>
-              <span class="status-badge" [class]="item.status">
-                <i class="fas" [class]="getStatusIcon(item.status)"></i>
-                {{ item.status | titlecase }}
-              </span>
+              <span class="status-dot" [class]="item.status" [title]="item.status | titlecase"></span>
+              <span class="status-text">{{ 
+                item.status === 'draft' ? 'Draft' : 
+                item.status === 'submitted' ? 'Submitted' : 
+                item.status === 'approved' ? 'Approved' : 
+                item.status === 'rejected' ? 'Rejected' : item.status 
+              }}</span>
             </td>
             <td>
-              <div class="action-buttons">
-                @if (item.status === 'draft') {
-                  <button class="btn-submit" (click)="submitRequisition(item.id)"
-                          [disabled]="!isSubmissionAllowed" title="Submit for approval">
-                    <i class="fas fa-paper-plane"></i>
-                  </button>
-                }
-
-                @if (isAdmin && item.status === 'submitted') {
-                  <button class="btn-approve" (click)="reviewRequisition(item.id, true)" title="Approve">
-                    <i class="fas fa-check"></i>
-                  </button>
-                  <button class="btn-reject" (click)="reviewRequisition(item.id, false)" title="Reject">
-                    <i class="fas fa-times"></i>
-                  </button>
-                }
-
-                <button class="btn-delete" (click)="deleteItem(item.id)" title="Delete"
-                        [disabled]="item.status !== 'draft' && !isAdmin">
+              <div class="action-icons">
+                <button class="icon-btn-xs btn-delete" (click)="deleteItem(item.id)" title="Delete"
+                        [disabled]="!isTableEditable()">
                   <i class="fas fa-trash"></i>
                 </button>
               </div>
             </td>
           </tr>
 
+          <!-- Expanded Details -->
           @if (expandedRows.has(item.id)) {
-            <tr class="expanded-row">
-              <td colspan="13">
-                <div class="materials-details">
+            <tr class="details-row">
+              <td colspan="11">
+                <div class="details-compact">
                   <div class="details-header">
-                    <h4><i class="fas fa-list"></i> Raw Materials for {{ item.skuName }}</h4>
-                    <div class="type-filter">
-                      <select class="type-select" #typeFilter (change)="filterMaterials(item.id, typeFilter.value)">
-                        <option value="">All Types</option>
-                        <option value="pre-mix">Pre-mix</option>
-                        <option value="packaging">Packaging</option>
-                        <option value="meat-veg">Meat & Vegetables</option>
-                      </select>
-                    </div>
+                    <h5><i class="fas fa-list"></i> Materials ({{ item.materials ? item.materials.length : 0 }})</h5>
+                    <select class="filter-select" #typeFilter (change)="filterMaterials(item.id, typeFilter.value)">
+                      <option value="">All Types</option>
+                      <option value="pre-mix">Pre-mix</option>
+                      <option value="packaging">Packaging</option>
+                      <option value="meat-veg">Meat & Veg</option>
+                    </select>
                   </div>
-
-                  <table class="materials-table">
-                    <thead>
-                      <tr>
-                        <th>Raw Material</th>
-                        <th>Qty/Batch</th>
-                        <th>Unit</th>
-                        <th>Type</th>
-                        <th>Required Qty</th>
-                        <th>Served Qty</th>
-                        <th>Remarks</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  
+                  <div class="materials-grid">
+                    @if (item.materials && getFilteredMaterials(item.id, item.materials).length > 0) {
                       @for (material of getFilteredMaterials(item.id, item.materials); track $index) {
-                        <tr [class.unserved]="material.isUnserved">
-                          <td><strong>{{ material.name }}</strong></td>
-                          <td class="numeric">{{ material.qty }}</td>
-                          <td>{{ material.unit }}</td>
-                          <td>
-                            <span class="type-badge">{{ material.type || 'N/A' }}</span>
-                          </td>
-                          <td class="numeric">{{ material.requiredQty }} {{ material.unit }}</td>
-                          <td>
-                            <input type="number" class="served-input"
-                                   [value]="material.servedQty || 0"
-                                   min="0" [max]="material.requiredQty"
-                                   (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)"
-                                   [disabled]="item.status === 'draft'">
-                          </td>
-                          <td>
-                            <input type="text" class="remarks-input"
+                        <div class="material-card" [class.unserved]="material.isUnserved">
+                          <div class="material-header">
+                            <span class="material-name">
+                              @if (material.name && material.name.length > 25) {
+                                {{ material.name | slice:0:25 }}...
+                              } @else {
+                                {{ material.name }}
+                              }
+                            </span>
+                            <span class="material-type">{{ material.type || 'N/A' }}</span>
+                          </div>
+                          <div class="material-details">
+                            <div class="detail">
+                              <label>Required:</label>
+                              <span>{{ material.requiredQty }} {{ material.unit }}</span>
+                            </div>
+                            <div class="detail">
+                              <label>Served:</label>
+                              <input type="number" class="served-input-sm"
+                                     [value]="material.servedQty || 0"
+                                     min="0" [max]="material.requiredQty"
+                                     (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)"
+                                     [disabled]="!isTableEditable()">
+                            </div>
+                            <div class="detail">
+                              <label>Status:</label>
+                              <span class="material-status" 
+                                    [class]="material.servedQty && material.servedQty > 0 ? 'served' : 'pending'">
+                                {{ material.servedQty && material.servedQty > 0 ? 'Served' : 'Pending' }}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="material-actions">
+                            <input type="text" class="remarks-input-sm"
                                    [value]="material.remarks || ''"
                                    placeholder="Remarks"
-                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)"
-                                   [disabled]="item.status === 'draft'">
-                          </td>
-                          <td>
-                            @if (material.isUnserved) {
-                              <span class="unserved-badge">
-                                <i class="fas fa-exclamation-triangle"></i> Unserved
-                              </span>
-                            } @else if (material.servedQty && material.servedQty > 0) {
-                              <span class="served-badge">
-                                <i class="fas fa-check"></i> Served
-                                @if (material.servedDate) {
-                                  <small>{{ material.servedDate | date:'shortDate' }}</small>
-                                }
-                              </span>
-                            } @else {
-                              <span class="pending-badge">
-                                <i class="fas fa-clock"></i> Pending
-                              </span>
-                            }
-                          </td>
-                          <td>
-                            <button class="btn-save"
+                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)">
+                            <button class="btn-xs" 
                                     (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)"
-                                    title="Save changes"
-                                    [disabled]="item.status === 'draft'">
+                                    [disabled]="!isTableEditable()">
                               <i class="fas fa-save"></i>
                             </button>
-                          </td>
-                        </tr>
+                          </div>
+                        </div>
                       }
-                    </tbody>
-                    @if (item.remarks) {
-                      <tfoot>
-                        <tr>
-                          <td colspan="9" class="requisition-remarks">
-                            <strong><i class="fas fa-comment"></i> Requisition Remarks:</strong> {{ item.remarks }}
-                          </td>
-                        </tr>
-                      </tfoot>
+                    } @else {
+                      <div class="no-materials">
+                        <i class="fas fa-box-open"></i>
+                        <p>No materials found</p>
+                      </div>
                     }
-                  </table>
+                  </div>
+                  
+                  @if (item.remarks) {
+                    <div class="requisition-remarks">
+                      <strong><i class="fas fa-comment"></i> Remarks:</strong> {{ item.remarks }}
+                    </div>
+                  }
                 </div>
               </td>
             </tr>
@@ -353,16 +541,4 @@
       </tbody>
     </table>
   </div>
-
-  @if (requisitionItems.length > itemsPerPage) {
-    <div class="pagination">
-      <button (click)="changePage(-1)" [disabled]="currentPage === 1">
-        <i class="fas fa-chevron-left"></i> Previous
-      </button>
-      <span class="page-info">Page {{ currentPage }} of {{ totalPages }}</span>
-      <button (click)="changePage(1)" [disabled]="currentPage === totalPages">
-        Next <i class="fas fa-chevron-right"></i>
-      </button>
-    </div>
-  }
 </div>

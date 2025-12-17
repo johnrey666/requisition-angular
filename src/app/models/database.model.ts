@@ -44,6 +44,7 @@ export interface Requisition {
   approved_date?: string;
   remarks?: string;
   user_id: string;
+  table_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +64,36 @@ export interface RequisitionMaterial {
   created_at: string;
 }
 
+export interface UserTable {
+  id: string;
+  name: string;
+  user_id: string;
+  status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  submitted_by?: string;
+  submitted_date?: string;
+  reviewed_by?: string;
+  reviewed_date?: string;
+  approved_by?: string;
+  approved_date?: string;
+  remarks?: string;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Raw material interface for dashboard
+export interface RawMaterial {
+  name: string;
+  qty: number;
+  unit: string;
+  type: string;
+  requiredQty: number;
+  servedQty?: number;
+  remarks?: string;
+  servedDate?: Date;
+  isUnserved?: boolean;
+}
+
 // Add interface for dashboard items
 export interface DashboardRequisition {
   id: string;
@@ -75,13 +106,14 @@ export interface DashboardRequisition {
   unit: string;
   qtyPerPack: string;
   unit2: string;
-  materials: any[];
+  materials: RawMaterial[];
   status: 'draft' | 'submitted' | 'approved' | 'rejected';
   submittedBy?: string;
   submittedDate?: Date;
   reviewedBy?: string;
   reviewedDate?: Date;
-  approver?: string;
+  approvedBy?: string;
   approvedDate?: Date;
   remarks?: string;
+  tableId?: string;
 }

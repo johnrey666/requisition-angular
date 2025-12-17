@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import * as XLSX from 'xlsx';
 import { DatabaseService } from '../services/database.service';
 import { SupabaseService } from '../services/supabase.service';
-import { MasterData, DashboardRequisition } from '../models/database.model';
+import { MasterData, DashboardRequisition, UserTable } from '../models/database.model';
 
 declare function saveAs(data: any, filename?: string, options?: any): void;
 
@@ -28,6 +28,24 @@ interface CutoffSchedule {
   endTime: string;
   days: number[];
   isActive: boolean;
+}
+
+// Local UserTable interface that maps database fields to component fields
+interface LocalUserTable {
+  id: string;
+  name: string;
+  userId: string;
+  status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  submittedBy?: string;
+  submittedDate?: Date;
+  reviewedBy?: string;
+  reviewedDate?: Date;
+  approvedBy?: string;
+  approvedDate?: Date;
+  remarks?: string;
+  itemCount: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 @Component({
@@ -63,9 +81,6 @@ export class DashboardComponent implements OnInit {
   currentUser: any;
   isAdmin: boolean = false;
 
-  isSyncEnabled: boolean = false;
-  syncStatus: string = 'Local only';
-
   cutoffSchedules: CutoffSchedule[] = [
     {
       id: '1',
@@ -95,6 +110,24 @@ export class DashboardComponent implements OnInit {
   // Store filtered materials for each expanded row
   filteredMaterials: Map<string, RawMaterial[]> = new Map();
 
+  // Table management properties
+  userTables: LocalUserTable[] = [];
+  selectedTableId: string = '';
+  currentTable: LocalUserTable | null = null;
+  showApprovalPanel: boolean = false;
+  pendingApprovals: LocalUserTable[] = [];
+  pendingApprovalsCount: number = 0;
+
+  // Add User Modal properties
+  showAddUserModal: boolean = false;
+  newUser = {
+    full_name: '',
+    username: '',
+    email: '',
+    password: '',
+    role: 'user' as 'user' | 'admin'
+  };
+
   constructor(
     private fb: FormBuilder,
     private router: Router,
@@ -116,21 +149,29 @@ export class DashboardComponent implements OnInit {
     this.currentUser = savedUser ? JSON.parse(savedUser) : null;
     this.isAdmin = this.currentUser?.role === 'admin';
 
+    // Debug log
+    console.log('Current User:', this.currentUser);
+    console.log('Is Admin:', this.isAdmin);
+
     if (!this.currentUser) {
       this.router.navigate(['/login']);
       return;
     }
 
-    await this.loadFromLocalStorage();
-
     this.darkMode = localStorage.getItem('darkMode') === 'true';
     this.updateDarkMode();
-
-    this.loadSyncConfig();
 
     this.checkCutoffSchedule();
 
     await this.loadMasterDataFromDatabase();
+    await this.loadUserTables();
+    
+    // Load last selected table
+    const lastTableId = localStorage.getItem('lastSelectedTable');
+    if (lastTableId) {
+      this.selectedTableId = lastTableId;
+      await this.loadTableData();
+    }
   }
 
   private async loadMasterDataFromDatabase(): Promise<void> {
@@ -151,107 +192,6 @@ export class DashboardComponent implements OnInit {
   clickOutside(event: Event) {
     if (!(event.target as HTMLElement).closest('.export-dropdown')) {
       this.isExportDropdownOpen = false;
-    }
-  }
-
-  private async loadFromLocalStorage(): Promise<void> {
-    const savedData = localStorage.getItem('requisitionData');
-    if (savedData) {
-      try {
-        const data = JSON.parse(savedData);
-        this.requisitionItems = data.items || [];
-        this.uploadedFileName = data.fileName || '';
-
-        await this.syncLocalDataWithDatabase();
-
-        this.filterAndPaginate();
-      } catch (error) {
-        console.error('Error loading from localStorage:', error);
-      }
-    }
-  }
-
-  private async syncLocalDataWithDatabase(): Promise<void> {
-    if (this.requisitionItems.length > 0) {
-      for (const item of this.requisitionItems) {
-        try {
-          const requisitionData = {
-            sku_code: item.skuCode,
-            sku_name: item.skuName,
-            category: item.category,
-            qty_needed: item.qtyNeeded,
-            supplier: item.supplier,
-            qty_per_unit: item.qtyPerUnit,
-            unit: item.unit,
-            qty_per_pack: item.qtyPerPack,
-            pack_unit: item.unit2,
-            status: item.status,
-            user_id: this.currentUser?.id || '',
-            submitted_by: item.submittedBy,
-            submitted_date: item.submittedDate?.toISOString(),
-            reviewed_by: item.reviewedBy,
-            reviewed_date: item.reviewedDate?.toISOString(),
-            approver: item.approver,
-            approved_date: item.approvedDate?.toISOString(),
-            remarks: item.remarks
-          };
-
-          const materials = item.materials.map(material => ({
-            name: material.name,
-            qty: material.qty,
-            unit: material.unit,
-            type: material.type,
-            requiredQty: material.requiredQty,
-            servedQty: material.servedQty || 0,
-            remarks: material.remarks || '',
-            servedDate: material.servedDate,
-            isUnserved: material.isUnserved || false
-          }));
-
-          await this.dbService.createRequisition(requisitionData, materials);
-        } catch (error) {
-          console.error('Error syncing requisition to database:', error);
-        }
-      }
-    }
-  }
-
-  private saveToLocalStorage(): void {
-    const data = {
-      items: this.requisitionItems,
-      fileName: this.uploadedFileName
-    };
-    localStorage.setItem('requisitionData', JSON.stringify(data));
-  }
-
-  private loadSyncConfig(): void {
-    this.isSyncEnabled = localStorage.getItem('syncEnabled') === 'true';
-    this.updateSyncUI();
-  }
-
-  private updateSyncUI(): void {
-    if (this.isSyncEnabled) {
-      this.syncStatus = 'Auto-sync ON';
-    } else {
-      this.syncStatus = 'Local only';
-    }
-  }
-
-  toggleSync(): void {
-    this.isSyncEnabled = !this.isSyncEnabled;
-    localStorage.setItem('syncEnabled', this.isSyncEnabled.toString());
-    this.updateSyncUI();
-
-    if (this.isSyncEnabled) {
-      this.showToast('Cloud sync ENABLED!', 'success');
-    } else {
-      this.showToast('Sync disabled – local only', 'info');
-    }
-  }
-
-  restoreFromCloud(): void {
-    if (confirm('Restore from cloud?\n\nThis will replace all local data.')) {
-      this.showToast('Restore from cloud not implemented yet', 'warning');
     }
   }
 
@@ -501,6 +441,16 @@ export class DashboardComponent implements OnInit {
   async addRequisition(): Promise<void> {
     console.log('=== DEBUG: addRequisition called ===');
     
+    if (!this.selectedTableId) {
+      this.showToast('Please select or create a table first', 'error');
+      return;
+    }
+    
+    if (!this.isTableEditable()) {
+      this.showToast('Cannot add items to this table in its current status', 'error');
+      return;
+    }
+    
     if (this.requisitionForm.invalid) {
       console.log('Form is invalid');
       this.showToast('Please fill all required fields', 'error');
@@ -645,13 +595,13 @@ export class DashboardComponent implements OnInit {
       qtyPerPack: skuInfo.quantity_per_pack || '',
       unit2: skuInfo.pack_unit || '',
       materials: materials,
-      status: 'draft'
+      status: 'draft',
+      tableId: this.selectedTableId
     };
 
     console.log('New item created:', newItem);
 
     this.requisitionItems.push(newItem);
-    this.saveToLocalStorage();
 
     try {
       const requisitionData = {
@@ -665,16 +615,20 @@ export class DashboardComponent implements OnInit {
         qty_per_pack: newItem.qtyPerPack,
         pack_unit: newItem.unit2,
         status: newItem.status,
-        user_id: this.currentUser?.id || ''
+        user_id: this.currentUser?.id || '',
+        table_id: this.selectedTableId
       };
 
-      const result = await this.dbService.createRequisition(requisitionData, materials);
+      const result = await this.dbService.createRequisition(requisitionData, materials, this.selectedTableId);
       if (result.success) {
         console.log('Requisition saved to database with ID:', result.requisitionId);
       }
     } catch (error) {
       console.error('Error saving to database:', error);
     }
+
+    // Update table data
+    await this.saveTableData();
 
     this.showToast(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
 
@@ -705,6 +659,7 @@ export class DashboardComponent implements OnInit {
 
   updateQty(itemId: string, qty: number): void {
     if (qty < 1 || qty > 99) return;
+    if (!this.isTableEditable()) return;
 
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
@@ -712,26 +667,36 @@ export class DashboardComponent implements OnInit {
       item.materials.forEach(material => {
         material.requiredQty = material.qty * qty;
       });
-      this.saveToLocalStorage();
+      this.saveTableData();
       this.filterAndPaginate();
     }
   }
 
   updateSupplier(itemId: string, supplier: string): void {
+    if (!this.isTableEditable()) return;
+
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
       item.supplier = supplier;
-      this.saveToLocalStorage();
+      this.saveTableData();
     }
   }
 
   deleteItem(itemId: string): void {
+    if (!this.isTableEditable()) {
+      this.showToast('Cannot delete items from this table in its current status', 'error');
+      return;
+    }
+
     if (confirm('Are you sure you want to delete this item?')) {
       const index = this.requisitionItems.findIndex(item => item.id === itemId);
       if (index !== -1) {
         const removedName = this.requisitionItems[index].skuName;
         this.requisitionItems.splice(index, 1);
-        this.saveToLocalStorage();
+        
+        // Save to database
+        this.saveTableData();
+        
         this.filterAndPaginate();
         this.showToast(`${removedName} removed`, 'error');
       }
@@ -753,6 +718,8 @@ export class DashboardComponent implements OnInit {
   }
 
   updateMaterialServedQty(itemId: string, materialIndex: number, servedQty: number, remarks?: string): void {
+    if (!this.isTableEditable()) return;
+
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item && item.materials[materialIndex]) {
       const material = item.materials[materialIndex];
@@ -761,7 +728,7 @@ export class DashboardComponent implements OnInit {
       material.servedDate = new Date();
       material.isUnserved = servedQty < material.requiredQty;
 
-      this.saveToLocalStorage();
+      this.saveTableData();
       this.filterAndPaginate();
     }
   }
@@ -810,56 +777,6 @@ export class DashboardComponent implements OnInit {
       return this.filteredMaterials.get(itemId)!;
     }
     return allMaterials;
-  }
-
-  async submitRequisition(itemId: string): Promise<void> {
-    if (!this.isSubmissionAllowed) {
-      this.showToast('Submission is not allowed at this time. Please check cutoff schedule.', 'error');
-      return;
-    }
-
-    if (!this.currentUser) {
-      this.showToast('You must be logged in to submit', 'error');
-      return;
-    }
-
-    const item = this.requisitionItems.find(i => i.id === itemId);
-    if (item) {
-      if (!item.supplier || !item.qtyNeeded || item.qtyNeeded <= 0) {
-        this.showToast('Please fill all required fields before submission', 'error');
-        return;
-      }
-
-      if (confirm('Submit this requisition for approval?')) {
-        item.status = 'submitted';
-        item.submittedBy = this.currentUser.full_name || this.currentUser.username;
-        item.submittedDate = new Date();
-        this.saveToLocalStorage();
-        this.filterAndPaginate();
-        this.showToast('Requisition submitted successfully', 'success');
-      }
-    }
-  }
-
-  async reviewRequisition(itemId: string, approve: boolean): Promise<void> {
-    if (!this.isAdmin) {
-      this.showToast('Only admins can review requisitions', 'error');
-      return;
-    }
-
-    const item = this.requisitionItems.find(i => i.id === itemId);
-    if (item) {
-      const remarks = prompt(approve ? 'Enter approval remarks (optional):' : 'Enter rejection reason:');
-      if (remarks !== null) {
-        item.status = approve ? 'approved' : 'rejected';
-        item.reviewedBy = this.currentUser.full_name || this.currentUser.username;
-        item.reviewedDate = new Date();
-        item.remarks = remarks;
-        this.saveToLocalStorage();
-        this.filterAndPaginate();
-        this.showToast(`Requisition ${approve ? 'approved' : 'rejected'}`, 'success');
-      }
-    }
   }
 
   filterAndPaginate(): void {
@@ -921,6 +838,12 @@ export class DashboardComponent implements OnInit {
   exportData(type: string = 'all'): void {
     this.isExportDropdownOpen = false;
 
+    // Double-check permission
+    if (!this.isExportEnabled()) {
+      this.showToast('Export is only available for approved tables', 'error');
+      return;
+    }
+
     if (this.requisitionItems.length === 0) {
       this.showToast('No data to export.', 'error');
       return;
@@ -930,6 +853,7 @@ export class DashboardComponent implements OnInit {
       ['RAW MATERIAL E-PORTAL REQUISITION'],
       ['Generated', new Date().toLocaleString('en-PH')],
       ['Master File', this.uploadedFileName || 'None'],
+      ['Table', this.currentTable?.name || 'No table'],
       ['Export Type', this.getExportTypeDisplayName(type)],
       [''],
       ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier', 'Status',
@@ -976,7 +900,7 @@ export class DashboardComponent implements OnInit {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requisition');
 
-    const fileName = `Requisition_${
+    const fileName = `Requisition_${this.currentTable?.name.replace(/\s+/g, '_')}_${
       type === 'all' ? 'All' :
       this.getExportTypeDisplayName(type).replace(/&/g, 'and').replace(/\s+/g, '')
     }_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
@@ -1007,14 +931,56 @@ export class DashboardComponent implements OnInit {
     }
   }
 
-  clearAll(): void {
-    if (confirm('Clear all requisition data?')) {
-      this.requisitionItems = [];
-      this.searchQuery = '';
-      this.currentPage = 1;
-      this.saveToLocalStorage();
-      this.filterAndPaginate();
-      this.showToast('All data cleared!', 'info');
+  async clearAll(): Promise<void> {
+    if (!this.selectedTableId) {
+      this.showToast('Please select a table first', 'error');
+      return;
+    }
+    
+    if (!this.isTableEditable()) {
+      this.showToast('Cannot clear table in its current status', 'error');
+      return;
+    }
+    
+    if (confirm('Clear all items from this table? This action cannot be undone.')) {
+      try {
+        // Delete all requisitions for this table from database
+        const supabase = this.supabaseService.getClient();
+        const { data: requisitions } = await supabase
+          .from('requisitions')
+          .select('id')
+          .eq('table_id', this.selectedTableId);
+        
+        if (requisitions && requisitions.length > 0) {
+          // Delete materials first
+          for (const req of requisitions) {
+            await supabase
+              .from('requisition_materials')
+              .delete()
+              .eq('requisition_id', req.id);
+          }
+          
+          // Delete requisitions
+          await supabase
+            .from('requisitions')
+            .delete()
+            .eq('table_id', this.selectedTableId);
+        }
+        
+        // Clear local data
+        this.requisitionItems = [];
+        this.searchQuery = '';
+        this.currentPage = 1;
+        
+        // Update table item count
+        await this.saveTableData();
+        
+        this.filterAndPaginate();
+        this.showToast('Table cleared successfully!', 'success');
+      } catch (error) {
+        console.error('Error clearing table:', error);
+        this.showToast('Failed to clear table', 'error');
+      }
     }
   }
 
@@ -1028,8 +994,6 @@ export class DashboardComponent implements OnInit {
         qtyNeeded: 1,
         supplier: ''
       });
-      this.saveToLocalStorage();
-      this.filterAndPaginate();
     }
   }
 
@@ -1050,6 +1014,7 @@ export class DashboardComponent implements OnInit {
   logout(): void {
     if (confirm('Are you sure you want to logout?')) {
       localStorage.removeItem('currentUser');
+      localStorage.removeItem('lastSelectedTable');
       this.router.navigate(['/login']);
     }
   }
@@ -1084,5 +1049,446 @@ export class DashboardComponent implements OnInit {
 
   get window(): any {
     return window;
+  }
+
+  // ==================== TABLE MANAGEMENT METHODS ====================
+
+  private convertToLocalTable(dbTable: UserTable): LocalUserTable {
+    return {
+      id: dbTable.id,
+      name: dbTable.name,
+      userId: dbTable.user_id,
+      status: dbTable.status,
+      submittedBy: dbTable.submitted_by,
+      submittedDate: dbTable.submitted_date ? new Date(dbTable.submitted_date) : undefined,
+      reviewedBy: dbTable.reviewed_by,
+      reviewedDate: dbTable.reviewed_date ? new Date(dbTable.reviewed_date) : undefined,
+      approvedBy: dbTable.approved_by,
+      approvedDate: dbTable.approved_date ? new Date(dbTable.approved_date) : undefined,
+      remarks: dbTable.remarks,
+      itemCount: dbTable.item_count,
+      createdAt: new Date(dbTable.created_at),
+      updatedAt: new Date(dbTable.updated_at)
+    };
+  }
+
+  private convertToDbTable(localTable: LocalUserTable): Partial<UserTable> {
+    return {
+      name: localTable.name,
+      user_id: localTable.userId,
+      status: localTable.status,
+      submitted_by: localTable.submittedBy,
+      submitted_date: localTable.submittedDate?.toISOString(),
+      reviewed_by: localTable.reviewedBy,
+      reviewed_date: localTable.reviewedDate?.toISOString(),
+      approved_by: localTable.approvedBy,
+      approved_date: localTable.approvedDate?.toISOString(),
+      remarks: localTable.remarks,
+      item_count: localTable.itemCount
+    };
+  }
+
+  async loadUserTables(): Promise<void> {
+    try {
+      const dbTables = await this.dbService.getUserTables(this.currentUser.id);
+      this.userTables = dbTables.map(table => this.convertToLocalTable(table));
+      this.loadPendingApprovals();
+    } catch (error) {
+      console.error('Error loading user tables:', error);
+    }
+  }
+
+  async createNewTable(): Promise<void> {
+    const tableName = prompt('Enter table name:');
+    if (!tableName?.trim()) return;
+
+    try {
+      const newTable = await this.dbService.createUserTable({
+        name: tableName.trim(),
+        user_id: this.currentUser.id,
+        status: 'draft',
+        item_count: 0
+      });
+
+      if (newTable.success && newTable.tableId) {
+        const localTable: LocalUserTable = {
+          id: newTable.tableId,
+          name: tableName.trim(),
+          userId: this.currentUser.id,
+          status: 'draft',
+          itemCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        this.userTables.push(localTable);
+        this.selectedTableId = newTable.tableId;
+        this.currentTable = localTable;
+        this.requisitionItems = [];
+        this.filterAndPaginate();
+        this.showToast('Table created successfully', 'success');
+      }
+    } catch (error) {
+      console.error('Error creating table:', error);
+      this.showToast('Failed to create table', 'error');
+    }
+  }
+
+  async loadTableData(): Promise<void> {
+    if (!this.selectedTableId) {
+      this.currentTable = null;
+      this.requisitionItems = [];
+      this.filterAndPaginate();
+      return;
+    }
+
+    localStorage.setItem('lastSelectedTable', this.selectedTableId);
+    
+    try {
+      // Load table info
+      const dbTable = await this.dbService.getTableById(this.selectedTableId);
+      if (dbTable) {
+        this.currentTable = this.convertToLocalTable(dbTable);
+      }
+      
+      // Load table items
+      this.requisitionItems = await this.dbService.getTableRequisitions(this.selectedTableId);
+      
+      this.filterAndPaginate();
+    } catch (error) {
+      console.error('Error loading table data:', error);
+      this.showToast('Failed to load table data', 'error');
+    }
+  }
+
+  async renameTable(): Promise<void> {
+    if (!this.selectedTableId || !this.currentTable) return;
+    
+    const newName = prompt('Enter new table name:', this.currentTable.name);
+    if (!newName?.trim() || newName === this.currentTable.name) return;
+
+    try {
+      await this.dbService.updateTableName(this.selectedTableId, newName.trim());
+      this.currentTable.name = newName.trim();
+      this.currentTable.updatedAt = new Date();
+      
+      const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
+      if (tableIndex !== -1) {
+        this.userTables[tableIndex].name = newName.trim();
+        this.userTables[tableIndex].updatedAt = new Date();
+      }
+      
+      this.showToast('Table renamed successfully', 'success');
+    } catch (error) {
+      console.error('Error renaming table:', error);
+      this.showToast('Failed to rename table', 'error');
+    }
+  }
+
+  async deleteTable(): Promise<void> {
+    if (!this.selectedTableId) return;
+    
+    if (confirm('Are you sure you want to delete this table? All data will be lost.')) {
+      try {
+        await this.dbService.deleteTable(this.selectedTableId);
+        
+        this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
+        this.selectedTableId = '';
+        this.currentTable = null;
+        this.requisitionItems = [];
+        this.filterAndPaginate();
+        
+        localStorage.removeItem('lastSelectedTable');
+        this.showToast('Table deleted successfully', 'success');
+      } catch (error) {
+        console.error('Error deleting table:', error);
+        this.showToast('Failed to delete table', 'error');
+      }
+    }
+  }
+
+  async submitTableForApproval(): Promise<void> {
+    if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
+    
+    if (confirm('Submit this entire table for approval? All items will be submitted.')) {
+      try {
+        await this.dbService.submitTableForApproval(
+          this.selectedTableId,
+          this.currentUser.full_name || this.currentUser.username
+        );
+        
+        this.currentTable.status = 'submitted';
+        this.currentTable.submittedBy = this.currentUser.full_name || this.currentUser.username;
+        this.currentTable.submittedDate = new Date();
+        this.currentTable.updatedAt = new Date();
+        
+        // Update all items in the table to submitted
+        this.requisitionItems.forEach(item => {
+          if (item.status === 'draft') {
+            item.status = 'submitted';
+            item.submittedBy = this.currentUser.full_name || this.currentUser.username;
+            item.submittedDate = new Date();
+          }
+        });
+        
+        await this.saveTableData();
+        await this.loadPendingApprovals();
+        this.showToast('Table submitted for approval', 'success');
+      } catch (error) {
+        console.error('Error submitting table:', error);
+        this.showToast('Failed to submit table', 'error');
+      }
+    }
+  }
+
+  async resubmitTable(): Promise<void> {
+    if (!this.selectedTableId || !this.currentTable || this.currentTable.status !== 'rejected') {
+      return;
+    }
+    
+    const confirmResubmit = confirm('Resubmit this table for approval?');
+    if (!confirmResubmit) return;
+    
+    try {
+      // Update table status back to submitted
+      await this.supabaseService.getClient()
+        .from('user_tables')
+        .update({
+          status: 'submitted',
+          submitted_by: this.currentUser.full_name || this.currentUser.username,
+          submitted_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: null // Clear rejection remarks
+        })
+        .eq('id', this.selectedTableId);
+      
+      // Update all requisitions in the table
+      await this.supabaseService.getClient()
+        .from('requisitions')
+        .update({
+          status: 'submitted',
+          submitted_by: this.currentUser.full_name || this.currentUser.username,
+          submitted_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: null
+        })
+        .eq('table_id', this.selectedTableId);
+      
+      // Reload data
+      await this.loadTableData();
+      this.showToast('Table resubmitted for approval', 'success');
+    } catch (error) {
+      console.error('Error resubmitting table:', error);
+      this.showToast('Failed to resubmit table', 'error');
+    }
+  }
+
+  canSubmitTable(): boolean {
+    if (!this.currentTable) return false;
+    if (this.currentTable.status === 'approved') return false;
+    if (!this.isSubmissionAllowed) return false;
+    return this.requisitionItems.length > 0;
+  }
+
+  isTableSubmissionAllowed(): boolean {
+    return this.isSubmissionAllowed;
+  }
+
+  // Export permission check
+  isExportEnabled(): boolean {
+    // Export should only be enabled when table is approved
+    return this.currentTable?.status === 'approved';
+  }
+
+  // Table edit permission check
+  isTableEditable(): boolean {
+    // Table is editable when: draft or rejected (for resubmission)
+    return this.currentTable?.status === 'draft' || this.currentTable?.status === 'rejected';
+  }
+
+  // Admin approval methods
+  async loadPendingApprovals(): Promise<void> {
+    if (!this.isAdmin) return;
+    
+    try {
+      const dbTables = await this.dbService.getPendingApprovals();
+      this.pendingApprovals = dbTables.map(table => this.convertToLocalTable(table));
+      this.pendingApprovalsCount = this.pendingApprovals.length;
+    } catch (error) {
+      console.error('Error loading pending approvals:', error);
+    }
+  }
+
+  viewPendingApprovals(): void {
+    this.showApprovalPanel = true;
+  }
+
+  closeApprovalPanel(): void {
+    this.showApprovalPanel = false;
+  }
+
+  async approveTable(tableId: string): Promise<void> {
+    const remarks = prompt('Enter approval remarks (optional):');
+    
+    try {
+      await this.dbService.approveTable(
+        tableId,
+        this.currentUser.full_name || this.currentUser.username,
+        remarks || undefined
+      );
+      
+      // Reload data
+      await this.loadUserTables();
+      await this.loadPendingApprovals();
+      
+      if (this.selectedTableId === tableId) {
+        await this.loadTableData();
+      }
+      
+      this.showToast('Table approved successfully', 'success');
+    } catch (error) {
+      console.error('Error approving table:', error);
+      this.showToast('Failed to approve table', 'error');
+    }
+  }
+
+  async rejectTable(tableId: string): Promise<void> {
+    const remarks = prompt('Enter rejection reason:');
+    if (!remarks?.trim()) {
+      alert('Rejection reason is required');
+      return;
+    }
+    
+    try {
+      await this.dbService.rejectTable(
+        tableId,
+        this.currentUser.full_name || this.currentUser.username,
+        remarks.trim()
+      );
+      
+      // Reload data
+      await this.loadUserTables();
+      await this.loadPendingApprovals();
+      
+      if (this.selectedTableId === tableId) {
+        await this.loadTableData();
+      }
+      
+      this.showToast('Table rejected', 'info');
+    } catch (error) {
+      console.error('Error rejecting table:', error);
+      this.showToast('Failed to reject table', 'error');
+    }
+  }
+
+  async viewTableDetails(tableId: string): Promise<void> {
+    // Load the table in the main view
+    this.selectedTableId = tableId;
+    await this.loadTableData();
+    this.closeApprovalPanel();
+  }
+
+  // Update save method to auto-save to database
+  private async saveTableData(): Promise<void> {
+    if (!this.selectedTableId || !this.currentTable) return;
+    
+    try {
+      // Update table item count in database
+      await this.dbService.updateTableItemCount(this.selectedTableId, this.requisitionItems.length);
+      
+      // Update local table info
+      this.currentTable.itemCount = this.requisitionItems.length;
+      this.currentTable.updatedAt = new Date();
+      
+      const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
+      if (tableIndex !== -1) {
+        this.userTables[tableIndex].itemCount = this.requisitionItems.length;
+        this.userTables[tableIndex].updatedAt = new Date();
+      }
+    } catch (error) {
+      console.error('Error saving table data:', error);
+    }
+  }
+
+  // ==================== USER MANAGEMENT METHODS ====================
+  
+  closeAddUserModal(): void {
+    this.showAddUserModal = false;
+    this.newUser = {
+      full_name: '',
+      username: '',
+      email: '',
+      password: '',
+      role: 'user'
+    };
+  }
+
+  isNewUserFormValid(): boolean {
+    return !!(
+      this.newUser.full_name?.trim() &&
+      this.newUser.username?.trim() &&
+      this.newUser.email?.trim() &&
+      this.newUser.password?.trim() &&
+      this.newUser.role
+    );
+  }
+
+  async createNewUser(): Promise<void> {
+    if (!this.isNewUserFormValid()) {
+      this.showToast('Please fill all required fields', 'error');
+      return;
+    }
+
+    try {
+      const supabase = this.supabaseService.getClient();
+      
+      // First, sign up the user with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: this.newUser.email,
+        password: this.newUser.password,
+        options: {
+          data: {
+            username: this.newUser.username,
+            full_name: this.newUser.full_name,
+            role: this.newUser.role
+          }
+        }
+      });
+
+      if (authError) {
+        throw authError;
+      }
+
+      // Then create the user profile in the public.users table
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert([{
+          id: authData.user?.id,
+          email: this.newUser.email,
+          username: this.newUser.username,
+          full_name: this.newUser.full_name,
+          role: this.newUser.role,
+          created_at: new Date().toISOString()
+        }]);
+
+      if (profileError) {
+        console.error('Error creating user profile:', profileError);
+        // If profile creation fails, try to delete the auth user (if we have admin access)
+        if (authData.user?.id) {
+          try {
+            await supabase.auth.admin.deleteUser(authData.user.id);
+          } catch (deleteError) {
+            console.error('Error deleting auth user:', deleteError);
+          }
+        }
+        throw profileError;
+      }
+
+      this.showToast('User created successfully!', 'success');
+      this.closeAddUserModal();
+    } catch (error: any) {
+      console.error('Error creating user:', error);
+      this.showToast(`Failed to create user: ${error.message}`, 'error');
+    }
   }
 }
