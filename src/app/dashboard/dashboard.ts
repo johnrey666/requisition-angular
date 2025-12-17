@@ -30,6 +30,15 @@ interface CutoffSchedule {
   isActive: boolean;
 }
 
+// Snackbar configuration interface
+interface SnackbarConfig {
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  duration?: number;
+  actionText?: string;
+  actionCallback?: () => void;
+}
+
 // Local UserTable interface that maps database fields to component fields
 interface LocalUserTable {
   id: string;
@@ -128,6 +137,15 @@ export class DashboardComponent implements OnInit {
     role: 'user' as 'user' | 'admin'
   };
 
+  // Snackbar properties
+  showSnackbar: boolean = false;
+  snackbarMessage: string = '';
+  snackbarType: 'success' | 'error' | 'info' | 'warning' = 'info';
+  snackbarDuration: number = 4000;
+  snackbarActionText: string = '';
+  snackbarActionCallback?: () => void;
+  private snackbarTimeout: any;
+
   constructor(
     private fb: FormBuilder,
     private router: Router,
@@ -157,10 +175,6 @@ export class DashboardComponent implements OnInit {
       this.router.navigate(['/login']);
       return;
     }
-
-    this.darkMode = localStorage.getItem('darkMode') === 'true';
-    this.updateDarkMode();
-
     this.checkCutoffSchedule();
 
     await this.loadMasterDataFromDatabase();
@@ -185,6 +199,7 @@ export class DashboardComponent implements OnInit {
       }
     } catch (error) {
       console.error('Error loading master data from database:', error);
+      this.showSnackbarMessage('Error loading master data', 'error');
     }
   }
 
@@ -231,7 +246,7 @@ export class DashboardComponent implements OnInit {
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
 
         if (rows.length < 2) {
-          this.showToast('File has no data rows.', 'error');
+          this.showSnackbarMessage('File has no data rows.', 'error');
           return;
         }
 
@@ -240,7 +255,7 @@ export class DashboardComponent implements OnInit {
 
         // Check only essential columns (category is now optional)
         if (col.skuCode === -1 || col.skuName === -1 || col.raw === -1 || col.qtyBatch === -1 || col.unit4 === -1) {
-          this.showToast('Invalid header format. Required columns missing.', 'error');
+          this.showSnackbarMessage('Invalid header format. Required columns missing.', 'error');
           return;
         }
 
@@ -293,7 +308,7 @@ export class DashboardComponent implements OnInit {
         );
 
         if (validData.length === 0) {
-          this.showToast('No valid data found in the file.', 'error');
+          this.showSnackbarMessage('No valid data found in the file.', 'error');
           return;
         }
 
@@ -301,19 +316,19 @@ export class DashboardComponent implements OnInit {
 
         if (result.success) {
           this.uploadedFileName = file.name;
-          this.showToast(`Master file uploaded successfully! (${result.count} items)`, 'success');
+          this.showSnackbarMessage(`Master file uploaded successfully! (${result.count} items)`, 'success');
           await this.loadMasterDataFromDatabase();
         } else {
-          this.showToast(`Upload failed: ${result.error?.message || 'Unknown error'}`, 'error');
+          this.showSnackbarMessage(`Upload failed: ${result.error?.message || 'Unknown error'}`, 'error');
         }
 
       } catch (error: any) {
-        this.showToast(`Upload failed: ${error.message}`, 'error');
+        this.showSnackbarMessage(`Upload failed: ${error.message}`, 'error');
       }
     };
 
     reader.onerror = () => {
-      this.showToast('Failed to read file.', 'error');
+      this.showSnackbarMessage('Failed to read file.', 'error');
     };
 
     reader.readAsArrayBuffer(file);
@@ -442,18 +457,18 @@ export class DashboardComponent implements OnInit {
     console.log('=== DEBUG: addRequisition called ===');
     
     if (!this.selectedTableId) {
-      this.showToast('Please select or create a table first', 'error');
+      this.showSnackbarMessage('Please select or create a table first', 'error');
       return;
     }
     
     if (!this.isTableEditable()) {
-      this.showToast('Cannot add items to this table in its current status', 'error');
+      this.showSnackbarMessage('Cannot add items to this table in its current status', 'error');
       return;
     }
     
     if (this.requisitionForm.invalid) {
       console.log('Form is invalid');
-      this.showToast('Please fill all required fields', 'error');
+      this.showSnackbarMessage('Please fill all required fields', 'error');
       return;
     }
 
@@ -489,7 +504,7 @@ export class DashboardComponent implements OnInit {
       console.error('Both SKU code and SKU name are undefined!');
       console.log('Form values:', formValue);
       console.log('Available SKUs:', this.skus);
-      this.showToast('SKU information is missing. Please reselect the SKU.', 'error');
+      this.showSnackbarMessage('SKU information is missing. Please reselect the SKU.', 'error');
       return;
     }
 
@@ -533,7 +548,7 @@ export class DashboardComponent implements OnInit {
       });
       console.log('Available SKU codes in master data:', [...new Set(this.masterData.map(r => r.sku_code).filter(Boolean))].slice(0, 10));
       console.log('Available SKU names in master data:', [...new Set(this.masterData.map(r => r.sku_name).filter(Boolean))].slice(0, 10));
-      this.showToast('SKU not found in master data. Try reselecting from dropdown.', 'error');
+      this.showSnackbarMessage('SKU not found in master data. Try reselecting from dropdown.', 'error');
       return;
     }
 
@@ -574,7 +589,7 @@ export class DashboardComponent implements OnInit {
         quantity_per_batch: r.quantity_per_batch,
         batch_unit: r.batch_unit
       })));
-      this.showToast('No raw materials found for this SKU.', 'error');
+      this.showSnackbarMessage('No raw materials found for this SKU.', 'error');
       return;
     }
 
@@ -625,12 +640,13 @@ export class DashboardComponent implements OnInit {
       }
     } catch (error) {
       console.error('Error saving to database:', error);
+      this.showSnackbarMessage('Error saving to database', 'error');
     }
 
     // Update table data
     await this.saveTableData();
 
-    this.showToast(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
+    this.showSnackbarMessage(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
 
     this.requisitionForm.reset({
       category: '',
@@ -682,25 +698,31 @@ export class DashboardComponent implements OnInit {
     }
   }
 
-  deleteItem(itemId: string): void {
+  async deleteItem(itemId: string): Promise<void> {
     if (!this.isTableEditable()) {
-      this.showToast('Cannot delete items from this table in its current status', 'error');
+      this.showSnackbarMessage('Cannot delete items from this table in its current status', 'error');
       return;
     }
 
-    if (confirm('Are you sure you want to delete this item?')) {
-      const index = this.requisitionItems.findIndex(item => item.id === itemId);
-      if (index !== -1) {
-        const removedName = this.requisitionItems[index].skuName;
-        this.requisitionItems.splice(index, 1);
-        
-        // Save to database
-        this.saveTableData();
-        
-        this.filterAndPaginate();
-        this.showToast(`${removedName} removed`, 'error');
+    this.showConfirmDialog(
+      'Delete Item',
+      'Are you sure you want to delete this item?',
+      'Delete',
+      'Cancel',
+      async () => {
+        const index = this.requisitionItems.findIndex(item => item.id === itemId);
+        if (index !== -1) {
+          const removedName = this.requisitionItems[index].skuName;
+          this.requisitionItems.splice(index, 1);
+          
+          // Save to database
+          await this.saveTableData();
+          
+          this.filterAndPaginate();
+          this.showSnackbarMessage(`${removedName} removed`, 'success');
+        }
       }
-    }
+    );
   }
 
   toggleRow(itemId: string): void {
@@ -840,12 +862,12 @@ export class DashboardComponent implements OnInit {
 
     // Double-check permission
     if (!this.isExportEnabled()) {
-      this.showToast('Export is only available for approved tables', 'error');
+      this.showSnackbarMessage('Export is only available for approved tables', 'error');
       return;
     }
 
     if (this.requisitionItems.length === 0) {
-      this.showToast('No data to export.', 'error');
+      this.showSnackbarMessage('No data to export.', 'error');
       return;
     }
 
@@ -906,7 +928,7 @@ export class DashboardComponent implements OnInit {
     }_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
 
     XLSX.writeFile(wb, fileName);
-    this.showToast(`Exported ${this.getExportTypeDisplayName(type).toLowerCase()} successfully!`, 'success');
+    this.showSnackbarMessage(`Exported ${this.getExportTypeDisplayName(type).toLowerCase()} successfully!`, 'success');
   }
 
   private mapTypeToFilter(type: string): string {
@@ -933,98 +955,154 @@ export class DashboardComponent implements OnInit {
 
   async clearAll(): Promise<void> {
     if (!this.selectedTableId) {
-      this.showToast('Please select a table first', 'error');
+      this.showSnackbarMessage('Please select a table first', 'error');
       return;
     }
     
     if (!this.isTableEditable()) {
-      this.showToast('Cannot clear table in its current status', 'error');
+      this.showSnackbarMessage('Cannot clear table in its current status', 'error');
       return;
     }
     
-    if (confirm('Clear all items from this table? This action cannot be undone.')) {
-      try {
-        // Delete all requisitions for this table from database
-        const supabase = this.supabaseService.getClient();
-        const { data: requisitions } = await supabase
-          .from('requisitions')
-          .select('id')
-          .eq('table_id', this.selectedTableId);
-        
-        if (requisitions && requisitions.length > 0) {
-          // Delete materials first
-          for (const req of requisitions) {
+    this.showConfirmDialog(
+      'Clear Table',
+      'Clear all items from this table? This action cannot be undone.',
+      'Clear',
+      'Cancel',
+      async () => {
+        try {
+          // Delete all requisitions for this table from database
+          const supabase = this.supabaseService.getClient();
+          const { data: requisitions } = await supabase
+            .from('requisitions')
+            .select('id')
+            .eq('table_id', this.selectedTableId);
+          
+          if (requisitions && requisitions.length > 0) {
+            // Delete materials first
+            for (const req of requisitions) {
+              await supabase
+                .from('requisition_materials')
+                .delete()
+                .eq('requisition_id', req.id);
+            }
+            
+            // Delete requisitions
             await supabase
-              .from('requisition_materials')
+              .from('requisitions')
               .delete()
-              .eq('requisition_id', req.id);
+              .eq('table_id', this.selectedTableId);
           }
           
-          // Delete requisitions
-          await supabase
-            .from('requisitions')
-            .delete()
-            .eq('table_id', this.selectedTableId);
+          // Clear local data
+          this.requisitionItems = [];
+          this.searchQuery = '';
+          this.currentPage = 1;
+          
+          // Update table item count
+          await this.saveTableData();
+          
+          this.filterAndPaginate();
+          this.showSnackbarMessage('Table cleared successfully!', 'success');
+        } catch (error) {
+          console.error('Error clearing table:', error);
+          this.showSnackbarMessage('Failed to clear table', 'error');
         }
-        
-        // Clear local data
-        this.requisitionItems = [];
-        this.searchQuery = '';
-        this.currentPage = 1;
-        
-        // Update table item count
-        await this.saveTableData();
-        
-        this.filterAndPaginate();
-        this.showToast('Table cleared successfully!', 'success');
-      } catch (error) {
-        console.error('Error clearing table:', error);
-        this.showToast('Failed to clear table', 'error');
       }
-    }
+    );
   }
 
   clearFile(): void {
-    if (confirm('Clear uploaded master file?')) {
-      this.masterData = [];
-      this.uploadedFileName = '';
-      this.categories = [];
-      this.skus = [];
-      this.requisitionForm.reset({
-        qtyNeeded: 1,
-        supplier: ''
-      });
-    }
+    this.showConfirmDialog(
+      'Clear Master File',
+      'Clear uploaded master file?',
+      'Clear',
+      'Cancel',
+      () => {
+        this.masterData = [];
+        this.uploadedFileName = '';
+        this.categories = [];
+        this.skus = [];
+        this.requisitionForm.reset({
+          qtyNeeded: 1,
+          supplier: ''
+        });
+        this.showSnackbarMessage('Master file cleared', 'info');
+      }
+    );
   }
 
-  toggleDarkMode(): void {
-    this.darkMode = !this.darkMode;
-    localStorage.setItem('darkMode', this.darkMode.toString());
-    this.updateDarkMode();
-  }
-
-  private updateDarkMode(): void {
-    if (this.darkMode) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
-    }
-  }
 
   logout(): void {
-    if (confirm('Are you sure you want to logout?')) {
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('lastSelectedTable');
-      this.router.navigate(['/login']);
-    }
+    this.showConfirmDialog(
+      'Logout',
+      'Are you sure you want to logout?',
+      'Logout',
+      'Cancel',
+      () => {
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('lastSelectedTable');
+        this.router.navigate(['/login']);
+      }
+    );
   }
 
   private generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 
-  private showToast(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
-    alert(`${type.toUpperCase()}: ${message}`);
+  // ==================== SNACKBAR METHODS ====================
+
+  private showSnackbarMessage(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration?: number): void {
+    // Clear existing timeout
+    if (this.snackbarTimeout) {
+      clearTimeout(this.snackbarTimeout);
+    }
+    
+    this.snackbarMessage = message;
+    this.snackbarType = type;
+    this.snackbarDuration = duration || 4000;
+    this.showSnackbar = true;
+    
+    // Auto-hide after duration
+    this.snackbarTimeout = setTimeout(() => {
+      this.hideSnackbar();
+    }, this.snackbarDuration);
+    
+    this.cdRef.detectChanges();
+  }
+
+  hideSnackbar(): void {
+    this.showSnackbar = false;
+    if (this.snackbarTimeout) {
+      clearTimeout(this.snackbarTimeout);
+    }
+    this.cdRef.detectChanges();
+  }
+
+  snackbarAction(): void {
+    if (this.snackbarActionCallback) {
+      this.snackbarActionCallback();
+    }
+    this.hideSnackbar();
+  }
+
+  // ==================== CONFIRM DIALOG METHODS ====================
+
+  private showConfirmDialog(
+    title: string,
+    message: string,
+    confirmText: string = 'Confirm',
+    cancelText: string = 'Cancel',
+    onConfirm: () => void,
+    onCancel?: () => void
+  ): void {
+    // For now, using browser confirm but you can replace with a modal component
+    if (confirm(`${title}\n\n${message}`)) {
+      onConfirm();
+    } else if (onCancel) {
+      onCancel();
+    }
   }
 
   getStatusColor(status: string): string {
@@ -1095,43 +1173,54 @@ export class DashboardComponent implements OnInit {
       this.loadPendingApprovals();
     } catch (error) {
       console.error('Error loading user tables:', error);
+      this.showSnackbarMessage('Error loading user tables', 'error');
     }
   }
 
   async createNewTable(): Promise<void> {
-    const tableName = prompt('Enter table name:');
-    if (!tableName?.trim()) return;
+    this.showPromptDialog(
+      'Create New Table',
+      'Enter table name:',
+      'Create',
+      'Cancel',
+      async (tableName: string) => {
+        if (!tableName?.trim()) {
+          this.showSnackbarMessage('Table name is required', 'error');
+          return;
+        }
 
-    try {
-      const newTable = await this.dbService.createUserTable({
-        name: tableName.trim(),
-        user_id: this.currentUser.id,
-        status: 'draft',
-        item_count: 0
-      });
+        try {
+          const newTable = await this.dbService.createUserTable({
+            name: tableName.trim(),
+            user_id: this.currentUser.id,
+            status: 'draft',
+            item_count: 0
+          });
 
-      if (newTable.success && newTable.tableId) {
-        const localTable: LocalUserTable = {
-          id: newTable.tableId,
-          name: tableName.trim(),
-          userId: this.currentUser.id,
-          status: 'draft',
-          itemCount: 0,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        
-        this.userTables.push(localTable);
-        this.selectedTableId = newTable.tableId;
-        this.currentTable = localTable;
-        this.requisitionItems = [];
-        this.filterAndPaginate();
-        this.showToast('Table created successfully', 'success');
+          if (newTable.success && newTable.tableId) {
+            const localTable: LocalUserTable = {
+              id: newTable.tableId,
+              name: tableName.trim(),
+              userId: this.currentUser.id,
+              status: 'draft',
+              itemCount: 0,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            
+            this.userTables.push(localTable);
+            this.selectedTableId = newTable.tableId;
+            this.currentTable = localTable;
+            this.requisitionItems = [];
+            this.filterAndPaginate();
+            this.showSnackbarMessage('Table created successfully', 'success');
+          }
+        } catch (error) {
+          console.error('Error creating table:', error);
+          this.showSnackbarMessage('Failed to create table', 'error');
+        }
       }
-    } catch (error) {
-      console.error('Error creating table:', error);
-      this.showToast('Failed to create table', 'error');
-    }
+    );
   }
 
   async loadTableData(): Promise<void> {
@@ -1157,88 +1246,113 @@ export class DashboardComponent implements OnInit {
       this.filterAndPaginate();
     } catch (error) {
       console.error('Error loading table data:', error);
-      this.showToast('Failed to load table data', 'error');
+      this.showSnackbarMessage('Failed to load table data', 'error');
     }
   }
 
   async renameTable(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable) return;
     
-    const newName = prompt('Enter new table name:', this.currentTable.name);
-    if (!newName?.trim() || newName === this.currentTable.name) return;
+    this.showPromptDialog(
+      'Rename Table',
+      'Enter new table name:',
+      'Rename',
+      'Cancel',
+      async (newName: string) => {
+        if (!newName?.trim() || newName === this.currentTable?.name) {
+          if (!newName?.trim()) {
+            this.showSnackbarMessage('Table name is required', 'error');
+          }
+          return;
+        }
 
-    try {
-      await this.dbService.updateTableName(this.selectedTableId, newName.trim());
-      this.currentTable.name = newName.trim();
-      this.currentTable.updatedAt = new Date();
-      
-      const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
-      if (tableIndex !== -1) {
-        this.userTables[tableIndex].name = newName.trim();
-        this.userTables[tableIndex].updatedAt = new Date();
-      }
-      
-      this.showToast('Table renamed successfully', 'success');
-    } catch (error) {
-      console.error('Error renaming table:', error);
-      this.showToast('Failed to rename table', 'error');
-    }
+        try {
+          await this.dbService.updateTableName(this.selectedTableId, newName.trim());
+          this.currentTable!.name = newName.trim();
+          this.currentTable!.updatedAt = new Date();
+          
+          const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
+          if (tableIndex !== -1) {
+            this.userTables[tableIndex].name = newName.trim();
+            this.userTables[tableIndex].updatedAt = new Date();
+          }
+          
+          this.showSnackbarMessage('Table renamed successfully', 'success');
+        } catch (error) {
+          console.error('Error renaming table:', error);
+          this.showSnackbarMessage('Failed to rename table', 'error');
+        }
+      },
+      this.currentTable.name
+    );
   }
 
   async deleteTable(): Promise<void> {
     if (!this.selectedTableId) return;
     
-    if (confirm('Are you sure you want to delete this table? All data will be lost.')) {
-      try {
-        await this.dbService.deleteTable(this.selectedTableId);
-        
-        this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
-        this.selectedTableId = '';
-        this.currentTable = null;
-        this.requisitionItems = [];
-        this.filterAndPaginate();
-        
-        localStorage.removeItem('lastSelectedTable');
-        this.showToast('Table deleted successfully', 'success');
-      } catch (error) {
-        console.error('Error deleting table:', error);
-        this.showToast('Failed to delete table', 'error');
+    this.showConfirmDialog(
+      'Delete Table',
+      'Are you sure you want to delete this table? All data will be lost.',
+      'Delete',
+      'Cancel',
+      async () => {
+        try {
+          await this.dbService.deleteTable(this.selectedTableId);
+          
+          this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
+          this.selectedTableId = '';
+          this.currentTable = null;
+          this.requisitionItems = [];
+          this.filterAndPaginate();
+          
+          localStorage.removeItem('lastSelectedTable');
+          this.showSnackbarMessage('Table deleted successfully', 'success');
+        } catch (error) {
+          console.error('Error deleting table:', error);
+          this.showSnackbarMessage('Failed to delete table', 'error');
+        }
       }
-    }
+    );
   }
 
   async submitTableForApproval(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
     
-    if (confirm('Submit this entire table for approval? All items will be submitted.')) {
-      try {
-        await this.dbService.submitTableForApproval(
-          this.selectedTableId,
-          this.currentUser.full_name || this.currentUser.username
-        );
-        
-        this.currentTable.status = 'submitted';
-        this.currentTable.submittedBy = this.currentUser.full_name || this.currentUser.username;
-        this.currentTable.submittedDate = new Date();
-        this.currentTable.updatedAt = new Date();
-        
-        // Update all items in the table to submitted
-        this.requisitionItems.forEach(item => {
-          if (item.status === 'draft') {
-            item.status = 'submitted';
-            item.submittedBy = this.currentUser.full_name || this.currentUser.username;
-            item.submittedDate = new Date();
-          }
-        });
-        
-        await this.saveTableData();
-        await this.loadPendingApprovals();
-        this.showToast('Table submitted for approval', 'success');
-      } catch (error) {
-        console.error('Error submitting table:', error);
-        this.showToast('Failed to submit table', 'error');
+    this.showConfirmDialog(
+      'Submit Table',
+      'Submit this entire table for approval? All items will be submitted.',
+      'Submit',
+      'Cancel',
+      async () => {
+        try {
+          await this.dbService.submitTableForApproval(
+            this.selectedTableId,
+            this.currentUser.full_name || this.currentUser.username
+          );
+          
+          this.currentTable!.status = 'submitted';
+          this.currentTable!.submittedBy = this.currentUser.full_name || this.currentUser.username;
+          this.currentTable!.submittedDate = new Date();
+          this.currentTable!.updatedAt = new Date();
+          
+          // Update all items in the table to submitted
+          this.requisitionItems.forEach(item => {
+            if (item.status === 'draft') {
+              item.status = 'submitted';
+              item.submittedBy = this.currentUser.full_name || this.currentUser.username;
+              item.submittedDate = new Date();
+            }
+          });
+          
+          await this.saveTableData();
+          await this.loadPendingApprovals();
+          this.showSnackbarMessage('Table submitted for approval', 'success');
+        } catch (error) {
+          console.error('Error submitting table:', error);
+          this.showSnackbarMessage('Failed to submit table', 'error');
+        }
       }
-    }
+    );
   }
 
   async resubmitTable(): Promise<void> {
@@ -1246,41 +1360,46 @@ export class DashboardComponent implements OnInit {
       return;
     }
     
-    const confirmResubmit = confirm('Resubmit this table for approval?');
-    if (!confirmResubmit) return;
-    
-    try {
-      // Update table status back to submitted
-      await this.supabaseService.getClient()
-        .from('user_tables')
-        .update({
-          status: 'submitted',
-          submitted_by: this.currentUser.full_name || this.currentUser.username,
-          submitted_date: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          remarks: null // Clear rejection remarks
-        })
-        .eq('id', this.selectedTableId);
-      
-      // Update all requisitions in the table
-      await this.supabaseService.getClient()
-        .from('requisitions')
-        .update({
-          status: 'submitted',
-          submitted_by: this.currentUser.full_name || this.currentUser.username,
-          submitted_date: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          remarks: null
-        })
-        .eq('table_id', this.selectedTableId);
-      
-      // Reload data
-      await this.loadTableData();
-      this.showToast('Table resubmitted for approval', 'success');
-    } catch (error) {
-      console.error('Error resubmitting table:', error);
-      this.showToast('Failed to resubmit table', 'error');
-    }
+    this.showConfirmDialog(
+      'Resubmit Table',
+      'Resubmit this table for approval?',
+      'Resubmit',
+      'Cancel',
+      async () => {
+        try {
+          // Update table status back to submitted
+          await this.supabaseService.getClient()
+            .from('user_tables')
+            .update({
+              status: 'submitted',
+              submitted_by: this.currentUser.full_name || this.currentUser.username,
+              submitted_date: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              remarks: null // Clear rejection remarks
+            })
+            .eq('id', this.selectedTableId);
+          
+          // Update all requisitions in the table
+          await this.supabaseService.getClient()
+            .from('requisitions')
+            .update({
+              status: 'submitted',
+              submitted_by: this.currentUser.full_name || this.currentUser.username,
+              submitted_date: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              remarks: null
+            })
+            .eq('table_id', this.selectedTableId);
+          
+          // Reload data
+          await this.loadTableData();
+          this.showSnackbarMessage('Table resubmitted for approval', 'success');
+        } catch (error) {
+          console.error('Error resubmitting table:', error);
+          this.showSnackbarMessage('Failed to resubmit table', 'error');
+        }
+      }
+    );
   }
 
   canSubmitTable(): boolean {
@@ -1316,6 +1435,7 @@ export class DashboardComponent implements OnInit {
       this.pendingApprovalsCount = this.pendingApprovals.length;
     } catch (error) {
       console.error('Error loading pending approvals:', error);
+      this.showSnackbarMessage('Error loading pending approvals', 'error');
     }
   }
 
@@ -1328,57 +1448,70 @@ export class DashboardComponent implements OnInit {
   }
 
   async approveTable(tableId: string): Promise<void> {
-    const remarks = prompt('Enter approval remarks (optional):');
-    
-    try {
-      await this.dbService.approveTable(
-        tableId,
-        this.currentUser.full_name || this.currentUser.username,
-        remarks || undefined
-      );
-      
-      // Reload data
-      await this.loadUserTables();
-      await this.loadPendingApprovals();
-      
-      if (this.selectedTableId === tableId) {
-        await this.loadTableData();
+    this.showPromptDialog(
+      'Approve Table',
+      'Enter approval remarks (optional):',
+      'Approve',
+      'Cancel',
+      async (remarks: string) => {
+        try {
+          await this.dbService.approveTable(
+            tableId,
+            this.currentUser.full_name || this.currentUser.username,
+            remarks || undefined
+          );
+          
+          // Reload data
+          await this.loadUserTables();
+          await this.loadPendingApprovals();
+          
+          if (this.selectedTableId === tableId) {
+            await this.loadTableData();
+          }
+          
+          this.showSnackbarMessage('Table approved successfully', 'success');
+        } catch (error) {
+          console.error('Error approving table:', error);
+          this.showSnackbarMessage('Failed to approve table', 'error');
+        }
       }
-      
-      this.showToast('Table approved successfully', 'success');
-    } catch (error) {
-      console.error('Error approving table:', error);
-      this.showToast('Failed to approve table', 'error');
-    }
+    );
   }
 
   async rejectTable(tableId: string): Promise<void> {
-    const remarks = prompt('Enter rejection reason:');
-    if (!remarks?.trim()) {
-      alert('Rejection reason is required');
-      return;
-    }
-    
-    try {
-      await this.dbService.rejectTable(
-        tableId,
-        this.currentUser.full_name || this.currentUser.username,
-        remarks.trim()
-      );
-      
-      // Reload data
-      await this.loadUserTables();
-      await this.loadPendingApprovals();
-      
-      if (this.selectedTableId === tableId) {
-        await this.loadTableData();
+    this.showPromptDialog(
+      'Reject Table',
+      'Enter rejection reason:',
+      'Reject',
+      'Cancel',
+      async (remarks: string) => {
+        if (!remarks?.trim()) {
+          this.showSnackbarMessage('Rejection reason is required', 'error');
+          return;
+        }
+        
+        try {
+          await this.dbService.rejectTable(
+            tableId,
+            this.currentUser.full_name || this.currentUser.username,
+            remarks.trim()
+          );
+          
+          // Reload data
+          await this.loadUserTables();
+          await this.loadPendingApprovals();
+          
+          if (this.selectedTableId === tableId) {
+            await this.loadTableData();
+          }
+          
+          this.showSnackbarMessage('Table rejected', 'info');
+        } catch (error) {
+          console.error('Error rejecting table:', error);
+          this.showSnackbarMessage('Failed to reject table', 'error');
+        }
       }
-      
-      this.showToast('Table rejected', 'info');
-    } catch (error) {
-      console.error('Error rejecting table:', error);
-      this.showToast('Failed to reject table', 'error');
-    }
+    );
   }
 
   async viewTableDetails(tableId: string): Promise<void> {
@@ -1407,6 +1540,7 @@ export class DashboardComponent implements OnInit {
       }
     } catch (error) {
       console.error('Error saving table data:', error);
+      this.showSnackbarMessage('Error saving table data', 'error');
     }
   }
 
@@ -1435,7 +1569,7 @@ export class DashboardComponent implements OnInit {
 
   async createNewUser(): Promise<void> {
     if (!this.isNewUserFormValid()) {
-      this.showToast('Please fill all required fields', 'error');
+      this.showSnackbarMessage('Please fill all required fields', 'error');
       return;
     }
 
@@ -1484,11 +1618,37 @@ export class DashboardComponent implements OnInit {
         throw profileError;
       }
 
-      this.showToast('User created successfully!', 'success');
+      this.showSnackbarMessage('User created successfully!', 'success');
       this.closeAddUserModal();
     } catch (error: any) {
       console.error('Error creating user:', error);
-      this.showToast(`Failed to create user: ${error.message}`, 'error');
+      this.showSnackbarMessage(`Failed to create user: ${error.message}`, 'error');
     }
   }
+
+  // ==================== HELPER METHODS ====================
+
+  private showPromptDialog(
+    title: string,
+    message: string,
+    confirmText: string = 'OK',
+    cancelText: string = 'Cancel',
+    onConfirm: (input: string) => void,
+    defaultValue: string = ''
+  ): void {
+    // For now, using browser prompt but you can replace with a modal component
+    const input = prompt(`${title}\n\n${message}`, defaultValue);
+    if (input !== null) {
+      onConfirm(input);
+    }
+  }
+  getSnackbarIcon(): string {
+  switch (this.snackbarType) {
+    case 'success': return 'fa-check-circle';
+    case 'error': return 'fa-exclamation-circle';
+    case 'warning': return 'fa-exclamation-triangle';
+    case 'info': 
+    default: return 'fa-info-circle';
+  }
+}
 }

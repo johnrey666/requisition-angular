@@ -169,87 +169,158 @@
   justify-content: center;
 }
 
-/* Quick Add Form in Table Header - Beautiful Styling */
+/* ========== ENHANCED DROPDOWNS - WIDER & SHORTER ========== */
 .quick-add-form {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
-  max-width: 800px;
+  max-width: 900px;
   background: white;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: var(--border-radius);
   border: var(--border);
   box-shadow: var(--shadow-sm);
 }
 
-/* Beautiful Form Elements */
-.form-select, .form-input {
-  padding: 8px 12px;
+/* SHORT & WIDE DROPDOWNS */
+.form-select, .form-select-sm, .form-select-xs, .form-input, .form-input-xs {
+  padding: 6px 12px;
   border: 1px solid var(--gray-300);
   border-radius: var(--border-radius-xs);
   font-size: 12px;
   background: white;
-  height: 34px;
-  min-width: 120px;
+  height: 32px;
+  min-width: 160px;
   transition: all 0.2s ease;
   box-sizing: border-box;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--gray-800);
-}
-
-/* Select Styling - Custom Arrow */
-.form-select {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
-  padding-right: 32px;
   cursor: pointer;
 }
 
-.form-select:hover {
-  border-color: var(--gray-400);
+/* Select Styling - WIDER */
+.form-select, .form-select-sm, .form-select-xs {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  padding-right: 30px;
+  width: 180px; /* Fixed width to make them wider */
+}
+
+/* Specific sizes - WIDER */
+.form-select {
+  width: 200px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.form-select-sm {
+  width: 180px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.form-select-xs {
+  width: 160px;
+  height: 30px;
+  font-size: 11px;
+}
+
+/* Make dropdown options show full text with ellipsis */
+.form-select option, .form-select-sm option, .form-select-xs option {
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: var(--gray-800) !important;
+  background: white !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 300px !important;
+  min-width: 180px !important;
+  width: 100% !important;
+}
+
+/* When dropdown is open, show full text */
+.form-select:focus option, 
+.form-select-sm:focus option, 
+.form-select-xs:focus option {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  min-height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* Dropdown hover effects */
+.form-select:hover, .form-select-sm:hover, .form-select-xs:hover, .form-input:hover, .form-input-xs:hover {
+  border-color: var(--primary);
   background-color: var(--gray-50);
 }
 
-.form-select:focus {
+/* Dropdown focus effects */
+.form-select:focus, .form-select-sm:focus, .form-select-xs:focus, .form-input:focus, .form-input-xs:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-/* Input Styling */
-.form-input {
-  padding: 8px 12px;
-}
-
-.form-input:hover {
-  border-color: var(--gray-400);
-  background-color: var(--gray-50);
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.form-input:disabled {
+/* Dropdown disabled state */
+.form-select:disabled, .form-select-sm:disabled, .form-select-xs:disabled, .form-input:disabled, .form-input-xs:disabled {
   background: var(--gray-100);
   color: var(--gray-500);
   cursor: not-allowed;
   border-color: var(--gray-300);
 }
 
-/* Placeholder Styling */
-.form-input::placeholder {
-  color: var(--gray-400);
+/* Input Styling - SHORTER */
+.form-input, .form-input-xs {
+  padding: 6px 12px;
+  cursor: text;
+  width: 150px;
 }
 
-/* Search in Table Header - Beautiful Styling */
+.form-input {
+  height: 34px;
+  font-size: 13px;
+}
+
+.form-input-xs {
+  height: 32px;
+  font-size: 12px;
+  width: 120px;
+}
+
+/* Placeholder Styling */
+.form-input::placeholder, .form-input-xs::placeholder {
+  color: var(--gray-400);
+  font-size: 12px;
+}
+
+/* Quick Add Form Specific Styles - WIDER */
+.quick-add-form .form-select {
+  width: 180px;
+  height: 32px;
+  min-width: 180px;
+}
+
+.quick-add-form .form-input {
+  width: 150px;
+  min-width: 150px;
+  height: 32px;
+}
+
+.quick-add-form .form-input-xs {
+  width: 120px;
+  min-width: 120px;
+  height: 32px;
+}
+
+/* Search in Table Header */
 .table-search-section {
   display: flex;
   align-items: center;
@@ -262,7 +333,7 @@
   align-items: center;
   gap: 8px;
   background: white;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: var(--border-radius);
   border: var(--border);
   min-width: 250px;
@@ -291,6 +362,7 @@
   min-width: 180px;
   color: var(--gray-800);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 28px;
 }
 
 .table-search-input:focus {
@@ -308,7 +380,7 @@
   align-items: center;
 }
 
-/* ========== SINGLE ROW CONTROLS (Now Minimal) ========== */
+/* ========== SINGLE ROW CONTROLS ========== */
 .single-row-controls {
   background: white;
   padding: 10px 16px;
@@ -347,7 +419,9 @@
 }
 
 .table-management-compact .form-select {
-  min-width: 140px;
+  width: 180px;
+  height: 32px;
+  min-width: 180px;
 }
 
 /* File Upload - Compact */
@@ -486,7 +560,7 @@
   color: var(--danger);
 }
 
-/* ========== DROPDOWN ========== */
+/* ========== DROPDOWN MENU ========== */
 .dropdown {
   position: relative;
 }
@@ -761,6 +835,9 @@
   display: inline-block;
   white-space: nowrap;
   border: 1px solid var(--gray-200);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .qty-input-sm, .supplier-input-sm {
@@ -772,6 +849,7 @@
   text-align: center;
   transition: all 0.2s;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 30px;
 }
 
 .qty-input-sm:focus, .supplier-input-sm:focus {
@@ -906,6 +984,7 @@
   font-size: 11px;
   background: white;
   min-width: 120px;
+  height: 30px;
   transition: all 0.2s;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
@@ -1011,6 +1090,7 @@
   text-align: center;
   transition: all 0.2s;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 28px;
 }
 
 .served-input-sm:focus {
@@ -1023,6 +1103,7 @@
   background: var(--gray-100);
   color: var(--gray-500);
   cursor: not-allowed;
+  border-color: var(--gray-300);
 }
 
 .material-status {
@@ -1061,6 +1142,7 @@
   font-size: 11px;
   transition: all 0.2s;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 28px;
 }
 
 .remarks-input-sm:focus {
@@ -1073,6 +1155,111 @@
   background: var(--gray-100);
   color: var(--gray-500);
   cursor: not-allowed;
+  border-color: var(--gray-300);
+}
+
+/* ========== SNACKBAR STYLES ========== */
+.snackbar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  min-width: 300px;
+  max-width: 450px;
+  background: white;
+  border-radius: var(--border-radius);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  animation: slideIn 0.3s ease;
+  border-left: 4px solid;
+  font-size: 14px;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.snackbar.snackbar-success {
+  border-left-color: var(--success);
+  background: #f0fdf4;
+}
+
+.snackbar.snackbar-error {
+  border-left-color: var(--danger);
+  background: #fef2f2;
+}
+
+.snackbar.snackbar-info {
+  border-left-color: var(--info);
+  background: #f0f9ff;
+}
+
+.snackbar.snackbar-warning {
+  border-left-color: var(--warning);
+  background: #fef3c7;
+}
+
+.snackbar-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.snackbar-content i {
+  font-size: 18px;
+}
+
+.snackbar.snackbar-success i {
+  color: var(--success);
+}
+
+.snackbar.snackbar-error i {
+  color: var(--danger);
+}
+
+.snackbar.snackbar-info i {
+  color: var(--info);
+}
+
+.snackbar.snackbar-warning i {
+  color: var(--warning);
+}
+
+.snackbar-message {
+  color: var(--gray-800);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.snackbar-close {
+  background: none;
+  border: none;
+  color: var(--gray-500);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--border-radius-xs);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.snackbar-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--gray-700);
 }
 
 /* ========== APPROVAL LIST ========== */
@@ -1243,6 +1430,14 @@
   width: 100%;
   box-sizing: border-box;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.add-user-form .form-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  padding-right: 32px;
 }
 
 .add-user-form .form-input:focus,
@@ -1595,6 +1790,45 @@
   border-color: #d97706;
 }
 
+/* Dark mode snackbar */
+.dark-mode .snackbar {
+  background: var(--gray-800);
+  border-color: var(--gray-700);
+}
+
+.dark-mode .snackbar.snackbar-success {
+  border-left-color: var(--success);
+  background: #064e3b;
+}
+
+.dark-mode .snackbar.snackbar-error {
+  border-left-color: var(--danger);
+  background: #7f1d1d;
+}
+
+.dark-mode .snackbar.snackbar-info {
+  border-left-color: var(--info);
+  background: #0c4a6e;
+}
+
+.dark-mode .snackbar.snackbar-warning {
+  border-left-color: var(--warning);
+  background: #78350f;
+}
+
+.dark-mode .snackbar-message {
+  color: var(--gray-300);
+}
+
+.dark-mode .snackbar-close {
+  color: var(--gray-400);
+}
+
+.dark-mode .snackbar-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--gray-300);
+}
+
 /* ========== RESPONSIVE ========== */
 @media (max-width: 1400px) {
   .single-row-controls {
@@ -1610,11 +1844,17 @@
   }
   
   .quick-add-form {
-    max-width: 700px;
+    max-width: 800px;
   }
   
-  .form-select, .form-input {
-    min-width: 110px;
+  .quick-add-form .form-select {
+    width: 160px;
+    min-width: 160px;
+  }
+  
+  .quick-add-form .form-input {
+    width: 130px;
+    min-width: 130px;
   }
 }
 
@@ -1654,8 +1894,10 @@
     width: 100%;
   }
   
-  .form-select, .form-input {
-    min-width: 100px;
+  .quick-add-form .form-select,
+  .quick-add-form .form-input {
+    width: 140px;
+    min-width: 140px;
     flex: 1;
   }
 }
@@ -1706,10 +1948,12 @@
     gap: 8px;
   }
   
-  .form-select, .form-input {
-    flex: 1;
-    min-width: 100px;
+  .quick-add-form .form-select,
+  .quick-add-form .form-input {
+    width: 120px;
+    min-width: 120px;
     max-width: 120px;
+    flex: 0 0 auto;
   }
   
   .materials-grid {
@@ -1727,6 +1971,15 @@
   
   .form-group.full-width {
     grid-column: span 1;
+  }
+  
+  /* Snackbar responsive */
+  .snackbar {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-width: none;
+    min-width: auto;
   }
 }
 
@@ -1758,9 +2011,9 @@
   
   .form-select {
     font-size: 11px;
-    padding: 7px 10px 7px 10px;
-    height: 32px;
-    min-width: 100px;
+    padding: 6px 10px;
+    height: 30px;
+    width: 140px;
     background-position: right 8px center;
   }
   
@@ -1769,12 +2022,14 @@
     gap: 6px;
   }
   
-  .form-select,
-  .form-input {
+  .quick-add-form .form-select,
+  .quick-add-form .form-input {
     height: 30px;
     font-size: 11px;
     padding: 6px 10px;
-    min-width: 90px;
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
   }
   
   .table-title {
@@ -1830,7 +2085,8 @@
   }
   
   .table-management-compact .form-select {
-    min-width: 120px;
+    width: 140px;
+    min-width: 140px;
   }
   
   .table-controls-row {
@@ -1841,11 +2097,12 @@
     flex-wrap: wrap;
   }
   
-  .form-select,
-  .form-input {
-    min-width: 80px;
-    max-width: 100px;
-    flex: 1 0 80px;
+  .quick-add-form .form-select,
+  .quick-add-form .form-input {
+    width: 90px;
+    min-width: 90px;
+    max-width: 90px;
+    flex: 1 0 90px;
   }
   
   .btn-xs {

@@ -44,9 +44,6 @@
         </button>
       }
       
-      <button class="icon-btn" (click)="toggleDarkMode()" [title]="darkMode ? 'Switch to Light' : 'Switch to Dark'">
-        <i class="fas" [class.fa-sun]="darkMode" [class.fa-moon]="!darkMode"></i>
-      </button>
       <button class="icon-btn" (click)="window.print()" title="Print Report">
         <i class="fas fa-print"></i>
       </button>
@@ -56,7 +53,7 @@
     </div>
   </div>
 
-  <!-- SINGLE ROW CONTROLS (Removed category/sku/code/supplier/add from here) -->
+  <!-- SINGLE ROW CONTROLS -->
   <div class="single-row-controls">
     <!-- Table Management -->
     <div class="control-section">
@@ -541,4 +538,17 @@
       </tbody>
     </table>
   </div>
+
+  <!-- Modern Snackbar -->
+  @if (showSnackbar) {
+    <div class="snackbar" [class]="'snackbar-' + snackbarType">
+      <div class="snackbar-content">
+        <i class="fas" [class]="getSnackbarIcon()"></i>
+        <span class="snackbar-message">{{ snackbarMessage }}</span>
+      </div>
+      <button class="snackbar-close" (click)="hideSnackbar()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  }
 </div>
