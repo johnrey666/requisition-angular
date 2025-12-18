@@ -66,6 +66,7 @@ interface LocalUserTable {
 })
 export class DashboardComponent implements OnInit {
   @ViewChild('masterFileInput') masterFileInput!: ElementRef;
+  @ViewChild('skuDropdown') skuDropdown!: ElementRef; // Add reference to SKU dropdown
 
   requisitionForm: FormGroup;
 
@@ -445,12 +446,34 @@ export class DashboardComponent implements OnInit {
       this.requisitionForm.get('skuCode')?.setValue(selected.code);
       this.requisitionForm.get('skuCode')?.disable();
       console.log('SKU Code set to:', this.requisitionForm.get('skuCode')?.value);
+      
+      // Update the title attribute for the tooltip
+      this.updateSKUTitle();
     } else {
       console.log('SKU not found in dropdown list');
       this.requisitionForm.get('skuCode')?.enable();
       this.requisitionForm.get('skuCode')?.setValue('');
       this.requisitionForm.get('skuCode')?.disable();
+      this.updateSKUTitle();
     }
+  }
+
+  // Update SKU dropdown title for tooltip
+  updateSKUTitle(): void {
+    setTimeout(() => {
+      const skuSelect = document.querySelector('.quick-add-form select[formControlName="sku"]') as HTMLSelectElement;
+      if (skuSelect) {
+        const selectedOption = skuSelect.options[skuSelect.selectedIndex];
+        const selectedText = selectedOption?.text || '';
+        skuSelect.title = selectedText || 'Select SKU';
+        
+        // Also update the skuCode field title
+        const skuCodeInput = document.querySelector('.quick-add-form input[formControlName="skuCode"]') as HTMLInputElement;
+        if (skuCodeInput) {
+          skuCodeInput.title = skuCodeInput.value || 'SKU Code';
+        }
+      }
+    }, 0);
   }
 
   async addRequisition(): Promise<void> {
@@ -1031,7 +1054,6 @@ export class DashboardComponent implements OnInit {
       }
     );
   }
-
 
   logout(): void {
     this.showConfirmDialog(
@@ -1642,13 +1664,14 @@ export class DashboardComponent implements OnInit {
       onConfirm(input);
     }
   }
+
   getSnackbarIcon(): string {
-  switch (this.snackbarType) {
-    case 'success': return 'fa-check-circle';
-    case 'error': return 'fa-exclamation-circle';
-    case 'warning': return 'fa-exclamation-triangle';
-    case 'info': 
-    default: return 'fa-info-circle';
+    switch (this.snackbarType) {
+      case 'success': return 'fa-check-circle';
+      case 'error': return 'fa-exclamation-circle';
+      case 'warning': return 'fa-exclamation-triangle';
+      case 'info': 
+      default: return 'fa-info-circle';
+    }
   }
-}
 }

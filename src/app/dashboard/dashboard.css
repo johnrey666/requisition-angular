@@ -230,31 +230,72 @@
   font-size: 11px;
 }
 
-/* Make dropdown options show full text with ellipsis */
-.form-select option, .form-select-sm option, .form-select-xs option {
-  padding: 8px 12px !important;
-  font-size: 12px !important;
-  color: var(--gray-800) !important;
-  background: white !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  max-width: 300px !important;
-  min-width: 180px !important;
-  width: 100% !important;
+/* Make SKU dropdown wider */
+.quick-add-form select.form-select-xs[formControlName="sku"] {
+  min-width: 200px !important;
+  max-width: 250px !important;
+  width: 200px !important;
 }
 
-/* When dropdown is open, show full text */
-.form-select:focus option, 
-.form-select-sm:focus option, 
-.form-select-xs:focus option {
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: unset !important;
-  min-height: 32px !important;
-  display: flex !important;
-  align-items: center !important;
+/* ========== TOOLTIP SOLUTION FOR DROPDOWN ========== */
+/* This shows the full text on hover */
+.dropdown-container {
+  position: relative;
+  display: inline-block;
 }
+
+/* Tooltip for the selected value */
+.form-select[title]:hover::after,
+.form-select-sm[title]:hover::after,
+.form-select-xs[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-800);
+  color: white;
+  padding: 6px 10px;
+  border-radius: var(--border-radius-xs);
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 1000;
+  margin-bottom: 5px;
+  box-shadow: var(--shadow-md);
+}
+
+/* Arrow for tooltip */
+.form-select[title]:hover::before,
+.form-select-sm[title]:hover::before,
+.form-select-xs[title]:hover::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--gray-800);
+  margin-bottom: -5px;
+  z-index: 1000;
+}
+
+/* Make the select element show full selected value as title */
+.quick-add-form select.form-select-xs[formControlName="sku"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* When an option is selected, update the title attribute via JavaScript */
+/* You'll need to add this JavaScript to your component: */
+/*
+updateSKUTitle() {
+  const skuSelect = document.querySelector('.quick-add-form select[formControlName="sku"]');
+  if (skuSelect) {
+    skuSelect.title = skuSelect.options[skuSelect.selectedIndex]?.text || '';
+  }
+}
+*/
 
 /* Dropdown hover effects */
 .form-select:hover, .form-select-sm:hover, .form-select-xs:hover, .form-input:hover, .form-input-xs:hover {
@@ -1856,6 +1897,12 @@
     width: 130px;
     min-width: 130px;
   }
+  
+  .quick-add-form select.form-select-xs[formControlName="sku"] {
+    min-width: 180px !important;
+    max-width: 220px !important;
+    width: 180px !important;
+  }
 }
 
 @media (max-width: 1200px) {
@@ -1899,6 +1946,12 @@
     width: 140px;
     min-width: 140px;
     flex: 1;
+  }
+  
+  .quick-add-form select.form-select-xs[formControlName="sku"] {
+    min-width: 160px !important;
+    max-width: 200px !important;
+    width: 160px !important;
   }
 }
 
@@ -1954,6 +2007,12 @@
     min-width: 120px;
     max-width: 120px;
     flex: 0 0 auto;
+  }
+  
+  .quick-add-form select.form-select-xs[formControlName="sku"] {
+    min-width: 140px !important;
+    max-width: 180px !important;
+    width: 140px !important;
   }
   
   .materials-grid {
@@ -2032,6 +2091,12 @@
     max-width: 100px;
   }
   
+  .quick-add-form select.form-select-xs[formControlName="sku"] {
+    min-width: 120px !important;
+    max-width: 160px !important;
+    width: 120px !important;
+  }
+  
   .table-title {
     font-size: 13px;
   }
@@ -2103,6 +2168,12 @@
     min-width: 90px;
     max-width: 90px;
     flex: 1 0 90px;
+  }
+  
+  .quick-add-form select.form-select-xs[formControlName="sku"] {
+    min-width: 100px !important;
+    max-width: 140px !important;
+    width: 100px !important;
   }
   
   .btn-xs {
