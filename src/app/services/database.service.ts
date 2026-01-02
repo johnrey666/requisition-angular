@@ -39,7 +39,8 @@ export class DatabaseService {
         console.log('Auth users found:', users?.map(u => ({ 
           id: u.id, 
           email: u.email,
-          metadata: u.user_metadata 
+          metadata: u.user_metadata,
+          email_confirmed_at: u.email_confirmed_at 
         })));
       }
       
@@ -58,65 +59,68 @@ export class DatabaseService {
     }
   }
 
-  async testLogin(email: string, password: string): Promise<{ success: boolean; message: string; data?: any }> {
-    console.log('Testing login with:', { email, password });
+  async debugCheckUserDuplicates(email: string, username: string): Promise<void> {
+    console.log('=== DEBUG: Checking for user duplicates ===');
     
     try {
-      const { data, error } = await this.supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        return { 
-          success: false, 
-          message: `Login failed: ${error.message}`,
-          data: { error }
-        };
-      }
-
-      await this.supabase.auth.signOut();
+      // Check users table first (this doesn't require admin access)
+      const { data: dbUsers, error: dbError } = await this.supabase
+        .from('users')
+        .select('*')
+        .or(`email.eq.${email},username.eq.${username}`);
       
-      return { 
-        success: true, 
-        message: 'Login test successful',
-        data: { user: data.user }
-      };
-    } catch (error: any) {
-      return { 
-        success: false, 
-        message: `Login test error: ${error.message}`,
-        data: { error }
-      };
+      if (!dbError) {
+        console.log('Database users found:', dbUsers);
+      }
+      
+      // Try admin API (may fail without service role key)
+      try {
+        const { data: { users }, error: authError } = await this.supabase.auth.admin.listUsers();
+        if (!authError) {
+          const authMatches = users?.filter(u => 
+            u.email === email || u.user_metadata?.['username'] === username
+          );
+          console.log('Auth users found:', authMatches?.map(u => ({
+            id: u.id,
+            email: u.email,
+            username: u.user_metadata?.['username'],
+            created_at: u.created_at
+          })));
+        }
+      } catch (adminError) {
+        console.log('Admin API access not available:', adminError);
+      }
+      
+    } catch (error) {
+      console.error('Debug check error:', error);
     }
   }
 
   // ========== USER OPERATIONS ==========
   async getCurrentUser(): Promise<User | null> {
     try {
-      const { data: { user } } = await this.supabase.auth.getUser();
-      if (!user) {
+      const { data: { user: authUser } } = await this.supabase.auth.getUser();
+      if (!authUser) {
         console.log('No authenticated user found');
         return null;
       }
 
-      console.log('Fetching user profile for:', user.id);
+      console.log('Fetching user profile for:', authUser.id);
       
       const { data, error } = await this.supabase
         .from('users')
         .select('*')
-        .eq('id', user.id)
-        .single();
+        .eq('id', authUser.id)
+        .maybeSingle();
 
-      if (error) {
+      if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error);
-        
-        if (error.code === 'PGRST116') {
-          console.log('Creating user profile from auth data');
-          return await this.createUserFromAuth(user);
-        }
-        
         return null;
+      }
+
+      if (!data) {
+        console.log('Creating user profile from auth data');
+        return await this.createUserFromAuth(authUser);
       }
 
       return data;
@@ -128,12 +132,29 @@ export class DatabaseService {
 
   private async createUserFromAuth(authUser: any): Promise<User | null> {
     try {
+      // Check if user already exists
+      const { data: existingUser } = await this.supabase
+        .from('users')
+        .select('id')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (existingUser) {
+        console.log('User already exists in profiles table, fetching...');
+        const { data: user } = await this.supabase
+          .from('users')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+        return user;
+      }
+
       const userData = {
         id: authUser.id,
         email: authUser.email,
-        username: authUser.user_metadata?.username || authUser.email?.split('@')[0] || 'user',
-        role: authUser.user_metadata?.role || 'user',
-        full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
+        username: authUser.user_metadata?.['username'] || authUser.email?.split('@')[0] || 'user',
+        role: authUser.user_metadata?.['role'] || 'user',
+        full_name: authUser.user_metadata?.['full_name'] || authUser.email?.split('@')[0],
         created_at: new Date().toISOString()
       };
 
@@ -145,6 +166,17 @@ export class DatabaseService {
 
       if (error) {
         console.error('Error creating user profile:', error);
+        
+        // If duplicate, try to fetch the existing user
+        if (error.code === '23505') {
+          const { data: existing } = await this.supabase
+            .from('users')
+            .select('*')
+            .eq('id', authUser.id)
+            .single();
+          return existing;
+        }
+        
         return null;
       }
 
@@ -171,20 +203,42 @@ export class DatabaseService {
 
       console.log('Auth successful, fetching user profile...');
       
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait a bit to ensure auth is complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      const user = await this.getCurrentUser();
+      const { data: { user: authUser } } = await this.supabase.auth.getUser();
       
-      if (!user) {
-        console.warn('User profile not found after successful auth');
-        const createdUser = await this.createUserFromAuth(authData.user);
-        if (createdUser) {
-          return { user: createdUser, error: null };
-        }
-        return { user: null, error: { message: 'User profile not found' } };
+      if (!authUser) {
+        return { user: null, error: { message: 'User not found after login' } };
       }
 
-      return { user, error: null };
+      console.log('Fetching user profile for:', authUser.id);
+      
+      const { data: userProfile, error: profileError } = await this.supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('Error fetching user profile:', profileError);
+        return { user: null, error: profileError };
+      }
+
+      // If user profile doesn't exist, create it
+      if (!userProfile) {
+        console.log('Creating user profile from auth data');
+        const newUser = await this.createUserFromAuth(authUser);
+        if (newUser) {
+          localStorage.setItem('currentUser', JSON.stringify(newUser));
+          return { user: newUser, error: null };
+        }
+        return { user: null, error: { message: 'Failed to create user profile' } };
+      }
+
+      localStorage.setItem('currentUser', JSON.stringify(userProfile));
+      return { user: userProfile, error: null };
+      
     } catch (error: any) {
       console.error('Login exception:', error);
       return { user: null, error };
@@ -226,15 +280,249 @@ export class DatabaseService {
     }
   }
 
+  // ========== USER CREATION (NEW ADMIN METHOD) ==========
+  /**
+   * Create user using Supabase Admin API (service_role key required)
+   * Bypasses email confirmation entirely — perfect for testing with dummy emails
+   */
+  async createUserAdmin(
+    email: string,
+    password: string,
+    metadata: { username: string; full_name: string; role: 'user' | 'admin' }
+  ): Promise<{ success: boolean; user?: any; error?: any }> {
+    try {
+      const adminClient = this.supabaseService.getAdminClient();
+
+      if (!adminClient) {
+        console.error('Admin client not available — service_role key missing');
+        return { success: false, error: { message: 'Admin client not configured' } };
+      }
+
+      console.log('Creating user via admin API:', { email, username: metadata.username });
+
+      const { data, error } = await adminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,                    // Auto-confirms email (no verification needed)
+        user_metadata: {
+          username: metadata.username,
+          full_name: metadata.full_name,
+          role: metadata.role
+        }
+      });
+
+      if (error) {
+        console.error('Admin createUser error:', error);
+        return { success: false, error };
+      }
+
+      if (!data?.user) {
+        return { success: false, error: { message: 'No user returned from admin create' } };
+      }
+
+      // Optionally create profile in 'users' table if not auto-created by trigger
+      const { error: profileError } = await this.supabase
+        .from('users')
+        .upsert({
+          id: data.user.id,
+          email: data.user.email,
+          username: metadata.username,
+          full_name: metadata.full_name,
+          role: metadata.role,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+
+      if (profileError && profileError.code !== '23505') {
+        console.warn('Could not create user profile (non-duplicate error):', profileError);
+      }
+
+      console.log('User created successfully via admin API:', data.user.id);
+      return { success: true, user: data.user };
+
+    } catch (error: any) {
+      console.error('Exception in createUserAdmin:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== OLD USER CREATION (kept for backward compatibility) ==========
+  async createUserWithAutoConfirm(email: string, password: string, userData: Partial<User>): Promise<{ success: boolean; userId?: string; error?: any }> {
+    try {
+      // Validate that username exists
+      const username = userData['username'] as string;
+      if (!username) {
+        return { 
+          success: false, 
+          error: { 
+            message: 'Username is required',
+            details: 'Username must be provided'
+          } 
+        };
+      }
+      
+      const fullName = userData['full_name'] || '';
+      const role = userData['role'] || 'user';
+      
+      console.log('Creating user:', { email, username });
+      
+      // First, try to sign up the user in auth
+      const { data: authData, error: signUpError } = await this.supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username: username,
+            full_name: fullName,
+            role: role
+          },
+          emailRedirectTo: window.location.origin
+        }
+      });
+
+      if (signUpError) {
+        console.error('Sign up error:', signUpError);
+        
+        // If user already exists in auth, try to sign in and check/create profile
+        if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
+          console.log('User already exists in auth, attempting to sign in...');
+          
+          // Try to sign in first
+          const { data: signInData, error: signInError } = await this.supabase.auth.signInWithPassword({
+            email,
+            password
+          });
+          
+          if (signInError) {
+            return { success: false, error: signInError };
+          }
+          
+          // Check if profile already exists
+          const { data: existingProfile } = await this.supabase
+            .from('users')
+            .select('id')
+            .eq('id', signInData.user.id)
+            .maybeSingle();
+          
+          if (existingProfile) {
+            console.log('User profile already exists');
+            return { 
+              success: false, 
+              error: { 
+                message: 'User already exists',
+                details: 'User profile already exists in the database'
+              } 
+            };
+          }
+          
+          // Create new profile
+          const { error: profileError } = await this.supabase
+            .from('users')
+            .insert([{
+              id: signInData.user.id,
+              email: signInData.user.email,
+              username: username,
+              full_name: fullName,
+              role: role,
+              created_at: new Date().toISOString()
+            }]);
+
+          if (profileError) {
+            console.error('Profile creation error after sign in:', profileError);
+            return { success: false, error: profileError };
+          }
+          
+          return { success: true, userId: signInData.user.id };
+        }
+        
+        return { success: false, error: signUpError };
+      }
+
+      if (!authData.user) {
+        return { success: false, error: { message: 'User creation failed - no user returned' } };
+      }
+
+      const userId = authData.user.id;
+      
+      // Wait a moment for auth to fully process (and for any database triggers to run)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // CRITICAL FIX: Check if profile already exists before trying to insert
+      const { data: existingProfile, error: checkError } = await this.supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Error checking for existing profile:', checkError);
+        // Continue with insert attempt
+      }
+
+      // If profile already exists (likely created by a database trigger), return success
+      if (existingProfile) {
+        console.log('User profile already exists (likely created by trigger), returning success.');
+        return { success: true, userId: userId };
+      }
+      
+      // If profile doesn't exist, create it
+      const { error: profileError } = await this.supabase
+        .from('users')
+        .insert([{
+          id: userId,
+          email: authData.user.email,
+          username: username,
+          full_name: fullName,
+          role: role,
+          created_at: new Date().toISOString()
+        }]);
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        
+        // If duplicate key error, profile was created between our check and insert
+        if (profileError.code === '23505') {
+          console.log('Profile was created concurrently, returning success.');
+          return { success: true, userId: userId };
+        }
+        
+        // Try upsert as fallback
+        console.log('Retrying with upsert...');
+        const { error: upsertError } = await this.supabase
+          .from('users')
+          .upsert({
+            id: userId,
+            email: authData.user.email,
+            username: username,
+            full_name: fullName,
+            role: role,
+            created_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+
+        if (upsertError) {
+          console.error('Upsert also failed:', upsertError);
+          return { success: false, error: upsertError };
+        }
+        
+        return { success: true, userId: userId };
+      }
+
+      console.log('User created successfully:', userId);
+      return { success: true, userId: userId };
+      
+    } catch (error: any) {
+      console.error('Error in createUserWithAutoConfirm:', error);
+      return { success: false, error };
+    }
+  }
+
   // ========== MASTER DATA OPERATIONS ==========
   async uploadMasterData(data: any[]): Promise<{ success: boolean; count: number; error?: any }> {
     try {
-      // Deduplicate rows based on sku_code + raw_material (the conflict keys)
       const uniqueMap = new Map<string, any>();
 
       data.forEach(row => {
         const formatted = {
-          category: row['CATEGORY']?.toString().trim() || null, // Allow null
+          category: row['CATEGORY']?.toString().trim() || null,
           sku_code: row['SKU CODE']?.toString().trim() || '',
           sku_name: row['SKU']?.toString().trim() || '',
           quantity_per_unit: row['QUANTITY PER UNIT']?.toString().trim() || '',
@@ -247,16 +535,13 @@ export class DatabaseService {
           type: row['TYPE']?.toString().trim() || ''
         };
 
-        // Create unique key: sku_code|raw_material
         const key = `${formatted.sku_code}|${formatted.raw_material}`;
-        
-        // Keep the last occurrence (in case of duplicates with slight differences)
         uniqueMap.set(key, formatted);
       });
 
       const formattedData = Array.from(uniqueMap.values());
 
-      console.log(`Uploading ${formattedData.length} unique master data rows (deduplicated from ${data.length})`);
+      console.log(`Uploading ${formattedData.length} unique master data rows`);
 
       const { error } = await this.supabase
         .from('master_data')
@@ -401,7 +686,6 @@ export class DatabaseService {
     materials?: any[]
   ): Promise<{ success: boolean; error?: any }> {
     try {
-      // Update requisition
       const { error: requisitionError } = await this.supabase
         .from('requisitions')
         .update({
@@ -415,9 +699,7 @@ export class DatabaseService {
         return { success: false, error: requisitionError };
       }
 
-      // Update materials if provided
       if (materials && materials.length > 0) {
-        // First, delete existing materials
         const { error: deleteError } = await this.supabase
           .from('requisition_materials')
           .delete()
@@ -428,7 +710,6 @@ export class DatabaseService {
           return { success: false, error: deleteError };
         }
 
-        // Then insert updated materials
         const formattedMaterials = materials.map(material => ({
           requisition_id: id,
           material_name: material.name,
@@ -724,7 +1005,6 @@ export class DatabaseService {
 
   async deleteTable(tableId: string): Promise<{ success: boolean; error?: any }> {
     try {
-      // First delete all requisitions in this table
       const { error: requisitionsError } = await this.supabase
         .from('requisitions')
         .delete()
@@ -735,7 +1015,6 @@ export class DatabaseService {
         return { success: false, error: requisitionsError };
       }
 
-      // Then delete the table
       const { error: tableError } = await this.supabase
         .from('user_tables')
         .delete()
@@ -765,7 +1044,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Also update all requisitions in this table
       const { error: requisitionsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -836,7 +1114,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Also update all requisitions in this table
       const { error: requisitionsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -878,7 +1155,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Also update all requisitions in this table
       const { error: requisitionsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -906,52 +1182,12 @@ export class DatabaseService {
     try {
       console.log(`Updating ${items.length} items for table ${tableId}`);
       
-      // Update table item count
       await this.updateTableItemCount(tableId, items.length);
       
       return { success: true };
     } catch (error) {
       console.error('Error in updateTableItems:', error);
       return { success: false, error };
-    }
-  }
-
-  // ========== SYNC OPERATIONS ==========
-  async syncToCloud(localData: any): Promise<{ success: boolean; error?: any }> {
-    try {
-      const { error } = await this.supabase
-        .from('cloud_sync')
-        .upsert({
-          id: 'requisition_system',
-          data: localData,
-          last_sync: new Date().toISOString(),
-          device_info: navigator.userAgent.substring(0, 200)
-        });
-
-      return { success: !error, error };
-    } catch (error) {
-      console.error('Error in syncToCloud:', error);
-      return { success: false, error };
-    }
-  }
-
-  async restoreFromCloud(): Promise<any | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('cloud_sync')
-        .select('data')
-        .eq('id', 'requisition_system')
-        .single();
-
-      if (error || !data) {
-        console.error('Error restoring from cloud:', error);
-        return null;
-      }
-
-      return data.data;
-    } catch (error) {
-      console.error('Error in restoreFromCloud:', error);
-      return null;
     }
   }
 
