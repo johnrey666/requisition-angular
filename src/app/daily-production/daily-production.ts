@@ -21,15 +21,6 @@ interface RawMaterial {
   isUnserved?: boolean;
 }
 
-interface CutoffSchedule {
-  id: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  days: number[];
-  isActive: boolean;
-}
-
 interface LocalUserTable {
   id: string;
   name: string;
@@ -79,27 +70,6 @@ export class DailyProductionComponent implements OnInit {
   sortAsc: boolean = true;
 
   currentUser: any;
-  isAdmin: boolean = false;
-
-  cutoffSchedules: CutoffSchedule[] = [
-    {
-      id: '1',
-      name: 'Morning Shift',
-      startTime: '08:00',
-      endTime: '12:00',
-      days: [1, 2, 3, 4, 5],
-      isActive: true
-    },
-    {
-      id: '2',
-      name: 'Afternoon Shift',
-      startTime: '13:00',
-      endTime: '17:00',
-      days: [1, 2, 3, 4, 5],
-      isActive: true
-    }
-  ];
-  isSubmissionAllowed: boolean = true;
 
   typeMapping = {
     'meat-veg': ['raw', 'meat', 'chicken', 'pork', 'beef', 'fish', 'veggies', 'vegetables', 'vegetable', 'veg'],
@@ -112,9 +82,6 @@ export class DailyProductionComponent implements OnInit {
   userTables: LocalUserTable[] = [];
   selectedTableId: string = '';
   currentTable: LocalUserTable | null = null;
-  showApprovalPanel: boolean = false;
-  pendingApprovals: LocalUserTable[] = [];
-  pendingApprovalsCount: number = 0;
 
   showSnackbar: boolean = false;
   snackbarMessage: string = '';
@@ -143,19 +110,14 @@ export class DailyProductionComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     const savedUser = localStorage.getItem('currentUser');
     this.currentUser = savedUser ? JSON.parse(savedUser) : null;
-    this.isAdmin = this.currentUser?.role === 'admin';
 
     console.log('Current User:', this.currentUser);
-    console.log('Is Admin:', this.isAdmin);
 
     if (!this.currentUser) {
       this.router.navigate(['/login']);
       return;
     }
 
-    this.pendingApprovalsCount = 0;
-    
-    this.checkCutoffSchedule();
     await this.loadMasterDataFromDatabase();
     await this.loadUserTables();
     
@@ -190,28 +152,6 @@ export class DailyProductionComponent implements OnInit {
     if (!(event.target as HTMLElement).closest('.export-dropdown')) {
       this.isExportDropdownOpen = false;
     }
-  }
-
-  private checkCutoffSchedule(): void {
-    const now = new Date();
-    const currentDay = now.getDay();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-
-    this.isSubmissionAllowed = this.cutoffSchedules.some(schedule => {
-      if (!schedule.isActive) return false;
-
-      const scheduleStart = this.timeToMinutes(schedule.startTime);
-      const scheduleEnd = this.timeToMinutes(schedule.endTime);
-
-      return schedule.days.includes(currentDay) &&
-            currentTime >= scheduleStart &&
-            currentTime <= scheduleEnd;
-    });
-  }
-
-  private timeToMinutes(time: string): number {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
   }
 
   async onFileUpload(event: any): Promise<void> {
@@ -409,19 +349,14 @@ export class DailyProductionComponent implements OnInit {
   onSkuChange(): void {
     const skuName = this.requisitionForm.get('sku')?.value;
     console.log('SKU selected from dropdown:', skuName);
-    console.log('Available SKUs in dropdown:', this.skus);
     
     const selected = this.skus.find(s => s.name === skuName);
     if (selected) {
-      console.log('Found SKU in dropdown list:', selected);
       this.requisitionForm.get('skuCode')?.enable();
       this.requisitionForm.get('skuCode')?.setValue(selected.code);
       this.requisitionForm.get('skuCode')?.disable();
-      console.log('SKU Code set to:', this.requisitionForm.get('skuCode')?.value);
-      
       this.updateSKUTitle();
     } else {
-      console.log('SKU not found in dropdown list');
       this.requisitionForm.get('skuCode')?.enable();
       this.requisitionForm.get('skuCode')?.setValue('');
       this.requisitionForm.get('skuCode')?.disable();
@@ -436,15 +371,15 @@ export class DailyProductionComponent implements OnInit {
         const selectedOption = skuSelect.options[skuSelect.selectedIndex];
         const selectedText = selectedOption?.text || '';
         skuSelect.title = selectedText || 'Select SKU';
-        
-        const skuCodeInput = document.querySelector('.quick-add-form input[formControlName="skuCode"]') as HTMLInputElement;
-        if (skuCodeInput) {
-          skuCodeInput.title = skuCodeInput.value || 'SKU Code';
-        }
+      }
+      const skuCodeInput = document.querySelector('.quick-add-form input[formControlName="skuCode"]') as HTMLInputElement;
+      if (skuCodeInput) {
+        skuCodeInput.title = skuCodeInput.value || 'SKU Code';
       }
     }, 0);
   }
 
+  // FINAL FIXED addRequisition – items show instantly and persist on reload
   async addRequisition(): Promise<void> {
     console.log('=== DEBUG: addRequisition called ===');
     
@@ -453,47 +388,23 @@ export class DailyProductionComponent implements OnInit {
       return;
     }
     
-    if (!this.isTableEditable()) {
-      this.showSnackbarMessage('Cannot add items to this table in its current status', 'error');
-      return;
-    }
-    
     if (this.requisitionForm.invalid) {
-      console.log('Form is invalid');
       this.showSnackbarMessage('Please fill all required fields', 'error');
       return;
     }
 
     const formValue = this.requisitionForm.value;
 
-    console.log('Form values:', {
-      category: formValue.category,
-      sku: formValue.sku,
-      skuCode: formValue.skuCode,
-      qtyNeeded: formValue.qtyNeeded,
-      supplier: formValue.supplier
-    });
-
     const formSkuCodeControl = this.requisitionForm.get('skuCode');
     const actualSkuCode = formSkuCodeControl?.value || formValue.skuCode;
-    
-    console.log('Actual SKU code from form control:', actualSkuCode);
-    console.log('Form skuCode disabled?', formSkuCodeControl?.disabled);
-    console.log('Form skuCode value:', formSkuCodeControl?.value);
 
     let skuCodeToUse = actualSkuCode;
     if (!skuCodeToUse && formValue.sku) {
       const selectedSku = this.skus.find(s => s.name === formValue.sku);
-      if (selectedSku) {
-        skuCodeToUse = selectedSku.code;
-        console.log('Got SKU code from dropdown selection:', skuCodeToUse);
-      }
+      if (selectedSku) skuCodeToUse = selectedSku.code;
     }
 
     if (!skuCodeToUse && !formValue.sku) {
-      console.error('Both SKU code and SKU name are undefined!');
-      console.log('Form values:', formValue);
-      console.log('Available SKUs:', this.skus);
       this.showSnackbarMessage('SKU information is missing. Please reselect the SKU.', 'error');
       return;
     }
@@ -501,56 +412,26 @@ export class DailyProductionComponent implements OnInit {
     let skuRecords: MasterData[] = [];
     
     if (skuCodeToUse) {
-      skuRecords = this.masterData.filter(r => {
-        const dbCode = (r.sku_code || '').toString().trim();
-        const formCode = skuCodeToUse.toString().trim();
-        console.log(`Comparing by code: DB Code="${dbCode}" vs Form Code="${formCode}"`);
-        return dbCode === formCode;
-      });
+      skuRecords = this.masterData.filter(r => (r.sku_code || '').toString().trim() === skuCodeToUse.toString().trim());
     }
 
     if (skuRecords.length === 0 && formValue.sku) {
-      console.log('No match by code, trying by name...');
-      skuRecords = this.masterData.filter(r => {
-        const dbName = (r.sku_name || '').toString().trim().toLowerCase();
-        const formName = (formValue.sku || '').toString().trim().toLowerCase();
-        console.log(`Comparing by name: DB Name="${dbName}" vs Form Name="${formName}"`);
-        return dbName === formName;
-      });
+      skuRecords = this.masterData.filter(r => 
+        (r.sku_name || '').toString().trim().toLowerCase() === (formValue.sku || '').toString().trim().toLowerCase()
+      );
     }
 
-    console.log('Records found:', skuRecords.length);
-    console.log('Matching records:', skuRecords.map(r => ({
-      code: r.sku_code,
-      name: r.sku_name,
-      category: r.category,
-      raw_material: r.raw_material,
-      quantity_per_batch: r.quantity_per_batch
-    })));
-
     if (skuRecords.length === 0) {
-      console.error('No records found for SKU:', {
-        code: skuCodeToUse,
-        name: formValue.sku
-      });
-      console.log('Available SKU codes in master data:', [...new Set(this.masterData.map(r => r.sku_code).filter(Boolean))].slice(0, 10));
-      console.log('Available SKU names in master data:', [...new Set(this.masterData.map(r => r.sku_name).filter(Boolean))].slice(0, 10));
       this.showSnackbarMessage('SKU not found in master data. Try reselecting from dropdown.', 'error');
       return;
     }
 
     const skuInfo = skuRecords[0];
-    console.log('Using SKU info from first matching record:', {
-      code: skuInfo.sku_code,
-      name: skuInfo.sku_name,
-      category: skuInfo.category,
-      hasRawMaterial: !!skuInfo.raw_material
-    });
 
     const materials = skuRecords
       .filter(r => r.raw_material?.trim() && r.quantity_per_batch)
       .map(r => ({
-        name: r.raw_material.trim(),
+        name: r.raw_material!.trim(),
         qty: parseFloat(r.quantity_per_batch) || 0,
         unit: r.batch_unit || '',
         type: r.type || '',
@@ -561,19 +442,7 @@ export class DailyProductionComponent implements OnInit {
         isUnserved: false
       }));
 
-    console.log('Materials found:', materials.length);
-    console.log('Sample materials:', materials.slice(0, 3));
-
     if (materials.length === 0) {
-      console.error('No materials found for SKU:', {
-        code: skuCodeToUse,
-        name: formValue.sku
-      });
-      console.log('All records for this SKU:', skuRecords.map(r => ({
-        raw_material: r.raw_material,
-        quantity_per_batch: r.quantity_per_batch,
-        batch_unit: r.batch_unit
-      })));
       this.showSnackbarMessage('No raw materials found for this SKU.', 'error');
       return;
     }
@@ -597,8 +466,7 @@ export class DailyProductionComponent implements OnInit {
       tableId: this.selectedTableId
     };
 
-    console.log('New item created:', newItem);
-
+    // Add to local array immediately → visible in UI instantly
     this.requisitionItems.push(newItem);
 
     try {
@@ -617,17 +485,23 @@ export class DailyProductionComponent implements OnInit {
         table_id: this.selectedTableId
       };
 
-      const result = await this.dbService.createRequisition(requisitionData, materials, this.selectedTableId);
-      if (result.success) {
-        console.log('Requisition saved to database with ID:', result.requisitionId);
+      const result = await this.dbService.createRequisition(requisitionData, materials);
+      if (result.success && result.requisitionId) {
+        newItem.id = result.requisitionId;
       }
     } catch (error) {
       console.error('Error saving to database:', error);
       this.showSnackbarMessage('Error saving to database', 'error');
+      // Remove from UI if save failed
+      const index = this.requisitionItems.findIndex(i => i.id === newItem.id);
+      if (index !== -1) this.requisitionItems.splice(index, 1);
+      this.filterAndPaginate();
+      return;
     }
 
     await this.saveTableData();
 
+    // Removed reload — we trust local state now
     this.showSnackbarMessage(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
 
     this.requisitionForm.reset({
@@ -640,11 +514,11 @@ export class DailyProductionComponent implements OnInit {
 
     this.currentPage = Math.ceil(this.requisitionItems.length / this.itemsPerPage);
     this.filterAndPaginate();
+    this.cdRef.detectChanges();
   }
 
   private generateSkuCodeFromName(skuName: string): string {
     if (!skuName) return 'NO-CODE';
-    
     let hash = 0;
     for (let i = 0; i < skuName.length; i++) {
       hash = ((hash << 5) - hash) + skuName.charCodeAt(i);
@@ -653,52 +527,65 @@ export class DailyProductionComponent implements OnInit {
     return 'GEN-' + Math.abs(hash).toString().substring(0, 6);
   }
 
-  updateQty(itemId: string, qty: number): void {
+  async updateQty(itemId: string, qty: number): Promise<void> {
     if (qty < 1 || qty > 99) return;
-    if (!this.isTableEditable()) return;
 
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
+      const oldQty = item.qtyNeeded;
       item.qtyNeeded = qty;
-      item.materials.forEach(material => {
-        material.requiredQty = material.qty * qty;
-      });
-      this.saveTableData();
-      this.filterAndPaginate();
+      item.materials.forEach(m => m.requiredQty = m.qty * qty);
+
+      try {
+        await this.dbService.updateRequisitionQty(itemId, qty);
+        await this.saveTableData();
+        this.filterAndPaginate();
+      } catch (error) {
+        console.error('Error updating quantity:', error);
+        item.qtyNeeded = oldQty;
+        item.materials.forEach(m => m.requiredQty = m.qty * oldQty);
+        this.showSnackbarMessage('Failed to update quantity', 'error');
+      }
     }
   }
 
-  updateSupplier(itemId: string, supplier: string): void {
-    if (!this.isTableEditable()) return;
-
+  async updateSupplier(itemId: string, supplier: string): Promise<void> {
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
+      const oldSupplier = item.supplier;
       item.supplier = supplier;
-      this.saveTableData();
+
+      try {
+        await this.dbService.updateRequisitionSupplier(itemId, supplier);
+        await this.saveTableData();
+      } catch (error) {
+        console.error('Error updating supplier:', error);
+        item.supplier = oldSupplier;
+        this.showSnackbarMessage('Failed to update supplier', 'error');
+      }
     }
   }
 
   async deleteItem(itemId: string): Promise<void> {
-    if (!this.isTableEditable()) {
-      this.showSnackbarMessage('Cannot delete items from this table in its current status', 'error');
-      return;
-    }
-
     this.showConfirmDialog(
       'Delete Item',
       'Are you sure you want to delete this item?',
       'Delete',
       'Cancel',
       async () => {
-        const index = this.requisitionItems.findIndex(item => item.id === itemId);
+        const index = this.requisitionItems.findIndex(i => i.id === itemId);
         if (index !== -1) {
           const removedName = this.requisitionItems[index].skuName;
-          this.requisitionItems.splice(index, 1);
-          
-          await this.saveTableData();
-          
-          this.filterAndPaginate();
-          this.showSnackbarMessage(`${removedName} removed`, 'success');
+          try {
+            await this.dbService.deleteRequisition(itemId);
+            this.requisitionItems.splice(index, 1);
+            await this.saveTableData();
+            this.filterAndPaginate();
+            this.showSnackbarMessage(`${removedName} removed`, 'success');
+          } catch (error) {
+            console.error('Error deleting item:', error);
+            this.showSnackbarMessage('Failed to delete item', 'error');
+          }
         }
       }
     );
@@ -717,73 +604,60 @@ export class DailyProductionComponent implements OnInit {
     }
   }
 
-  updateMaterialServedQty(itemId: string, materialIndex: number, servedQty: number, remarks?: string): void {
-    if (!this.isTableEditable()) return;
-
+  async updateMaterialServedQty(itemId: string, materialIndex: number, servedQty: number, remarks?: string): Promise<void> {
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item && item.materials[materialIndex]) {
       const material = item.materials[materialIndex];
+      const oldServedQty = material.servedQty;
+      const oldRemarks = material.remarks;
+      
       material.servedQty = servedQty;
       material.remarks = remarks;
       material.servedDate = new Date();
       material.isUnserved = servedQty < material.requiredQty;
 
-      this.saveTableData();
-      this.filterAndPaginate();
+      try {
+        await this.dbService.updateMaterialServedQty(itemId, material.name, servedQty, remarks);
+        await this.saveTableData();
+        this.filterAndPaginate();
+      } catch (error) {
+        console.error('Error updating served qty:', error);
+        material.servedQty = oldServedQty;
+        material.remarks = oldRemarks;
+        this.showSnackbarMessage('Failed to update served quantity', 'error');
+      }
     }
   }
 
   filterMaterials(itemId: string, filterType: string): void {
-    console.log(`Filtering materials for item ${itemId} by type: ${filterType}`);
-    
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (!item) return;
 
     if (!filterType) {
       this.filteredMaterials.set(itemId, [...item.materials]);
     } else {
-      const filtered = item.materials.filter(material => {
-        const materialType = (material.type || '').toLowerCase().trim();
-        
-        if (filterType === 'pre-mix') {
-          return this.typeMapping['pre-mix'].some(keyword => 
-            materialType.includes(keyword)
-          );
-        } else if (filterType === 'packaging') {
-          return this.typeMapping['packaging'].some(keyword => 
-            materialType.includes(keyword)
-          );
-        } else if (filterType === 'meat-veg') {
-          return this.typeMapping['meat-veg'].some(keyword => 
-            materialType.includes(keyword)
-          );
-        }
-        
-        return false;
+      const filtered = item.materials.filter(m => {
+        const type = (m.type || '').toLowerCase().trim();
+        return this.typeMapping[filterType as keyof typeof this.typeMapping]?.some(k => type.includes(k)) || false;
       });
-      
       this.filteredMaterials.set(itemId, filtered);
     }
-    
     this.cdRef.detectChanges();
   }
 
   getFilteredMaterials(itemId: string, allMaterials: RawMaterial[]): RawMaterial[] {
-    if (this.filteredMaterials.has(itemId)) {
-      return this.filteredMaterials.get(itemId)!;
-    }
-    return allMaterials;
+    return this.filteredMaterials.get(itemId) || allMaterials;
   }
 
   filterAndPaginate(): void {
     let filtered = [...this.requisitionItems];
 
     if (this.searchQuery) {
-      const query = this.searchQuery.toLowerCase();
-      filtered = filtered.filter(item =>
-        item.skuCode.toLowerCase().includes(query) ||
-        item.skuName.toLowerCase().includes(query) ||
-        (item.category && item.category.toLowerCase().includes(query))
+      const q = this.searchQuery.toLowerCase();
+      filtered = filtered.filter(i =>
+        i.skuCode.toLowerCase().includes(q) ||
+        i.skuName.toLowerCase().includes(q) ||
+        (i.category && i.category.toLowerCase().includes(q))
       );
     }
 
@@ -799,8 +673,7 @@ export class DailyProductionComponent implements OnInit {
     this.currentPage = Math.min(this.currentPage, this.totalPages || 1);
 
     const start = (this.currentPage - 1) * this.itemsPerPage;
-    const end = start + this.itemsPerPage;
-    this.filteredItems = filtered.slice(start, end);
+    this.filteredItems = filtered.slice(start, start + this.itemsPerPage);
     this.cdRef.detectChanges();
   }
 
@@ -810,17 +683,13 @@ export class DailyProductionComponent implements OnInit {
   }
 
   sortBy(field: string): void {
-    if (this.sortField === field) {
-      this.sortAsc = !this.sortAsc;
-    } else {
-      this.sortField = field;
-      this.sortAsc = true;
-    }
+    if (this.sortField === field) this.sortAsc = !this.sortAsc;
+    else { this.sortField = field; this.sortAsc = true; }
     this.filterAndPaginate();
   }
 
-  changePage(direction: number): void {
-    const newPage = this.currentPage + direction;
+  changePage(dir: number): void {
+    const newPage = this.currentPage + dir;
     if (newPage >= 1 && newPage <= this.totalPages) {
       this.currentPage = newPage;
       this.filterAndPaginate();
@@ -831,13 +700,78 @@ export class DailyProductionComponent implements OnInit {
     this.isExportDropdownOpen = !this.isExportDropdownOpen;
   }
 
-  exportData(type: string = 'all'): void {
-    this.isExportDropdownOpen = false;
-
-    if (!this.isExportEnabled()) {
-      this.showSnackbarMessage('Export is only available for approved tables', 'error');
+  printTable(): void {
+    if (this.requisitionItems.length === 0) {
+      this.showSnackbarMessage('No data to print.', 'error');
       return;
     }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      this.showSnackbarMessage('Please allow popups to print', 'error');
+      return;
+    }
+
+    const table = document.querySelector('.table-container-compact')?.cloneNode(true) as HTMLElement;
+    if (!table) {
+      this.showSnackbarMessage('Failed to prepare print content', 'error');
+      return;
+    }
+
+    const title = this.currentTable?.name || 'Requisition Items';
+    const date = new Date().toLocaleString('en-PH');
+    
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Print: ${title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+          .print-header { margin-bottom: 20px; }
+          .print-title { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+          .print-info { color: #666; margin-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
+          td { padding: 8px; border: 1px solid #ddd; }
+          .category-tag { background: #e9ecef; padding: 2px 6px; border-radius: 10px; font-size: 10px; }
+          .material-card { border: 1px solid #ddd; padding: 8px; margin: 5px 0; border-radius: 4px; }
+          .material-name { font-weight: bold; display: block; }
+          .material-type { background: #d1ecf1; padding: 2px 6px; border-radius: 10px; font-size: 10px; float: right; }
+          .material-details { margin-top: 5px; }
+          .detail { display: flex; justify-content: space-between; margin: 2px 0; }
+          .remarks { font-style: italic; color: #666; margin-top: 5px; }
+          @media print {
+            @page { margin: 0.5cm; }
+            body { margin: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-header">
+          <div class="print-title">${title}</div>
+          <div class="print-info">
+            Generated: ${date} | 
+            Items: ${this.requisitionItems.length} | 
+            File: ${this.uploadedFileName || 'No file'}
+          </div>
+        </div>
+        ${table.outerHTML}
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  }
+
+  exportData(type: string = 'all'): void {
+    this.isExportDropdownOpen = false;
 
     if (this.requisitionItems.length === 0) {
       this.showSnackbarMessage('No data to export.', 'error');
@@ -851,7 +785,7 @@ export class DailyProductionComponent implements OnInit {
       ['Table', this.currentTable?.name || 'No table'],
       ['Export Type', this.getExportTypeDisplayName(type)],
       [''],
-      ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier', 'Status',
+      ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier',
       'Raw Material', 'Qty/Batch', 'Unit', 'Type', 'Required Qty', 'Served Qty',
       'Remarks', 'Served Date', 'Unserved']
     ];
@@ -875,7 +809,6 @@ export class DailyProductionComponent implements OnInit {
           index === 0 ? (item.category || '') : '',
           index === 0 ? item.qtyNeeded.toString() : '',
           index === 0 ? item.supplier || '' : '',
-          index === 0 ? item.status : '',
           m.name,
           m.qty.toString(),
           m.unit || '',
@@ -932,11 +865,6 @@ export class DailyProductionComponent implements OnInit {
       return;
     }
     
-    if (!this.isTableEditable()) {
-      this.showSnackbarMessage('Cannot clear table in its current status', 'error');
-      return;
-    }
-    
     this.showConfirmDialog(
       'Clear Table',
       'Clear all items from this table? This action cannot be undone.',
@@ -946,20 +874,20 @@ export class DailyProductionComponent implements OnInit {
         try {
           const supabase = this.supabaseService.getClient();
           const { data: requisitions } = await supabase
-            .from('requisitions')
+            .from('material_requisitions')
             .select('id')
             .eq('table_id', this.selectedTableId);
           
           if (requisitions && requisitions.length > 0) {
             for (const req of requisitions) {
               await supabase
-                .from('requisition_materials')
+                .from('material_requisition_materials')
                 .delete()
                 .eq('requisition_id', req.id);
             }
             
             await supabase
-              .from('requisitions')
+              .from('material_requisitions')
               .delete()
               .eq('table_id', this.selectedTableId);
           }
@@ -969,7 +897,6 @@ export class DailyProductionComponent implements OnInit {
           this.currentPage = 1;
           
           await this.saveTableData();
-          
           this.filterAndPaginate();
           this.showSnackbarMessage('Table cleared successfully!', 'success');
         } catch (error) {
@@ -1005,75 +932,27 @@ export class DailyProductionComponent implements OnInit {
   }
 
   private showSnackbarMessage(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration?: number): void {
-    if (this.snackbarTimeout) {
-      clearTimeout(this.snackbarTimeout);
-    }
-    
+    if (this.snackbarTimeout) clearTimeout(this.snackbarTimeout);
     this.snackbarMessage = message;
     this.snackbarType = type;
     this.snackbarDuration = duration || 4000;
     this.showSnackbar = true;
-    
-    this.snackbarTimeout = setTimeout(() => {
-      this.hideSnackbar();
-    }, this.snackbarDuration);
-    
+    this.snackbarTimeout = setTimeout(() => this.hideSnackbar(), this.snackbarDuration);
     this.cdRef.detectChanges();
   }
 
   hideSnackbar(): void {
     this.showSnackbar = false;
-    if (this.snackbarTimeout) {
-      clearTimeout(this.snackbarTimeout);
-    }
+    if (this.snackbarTimeout) clearTimeout(this.snackbarTimeout);
     this.cdRef.detectChanges();
   }
 
-  snackbarAction(): void {
-    if (this.snackbarActionCallback) {
-      this.snackbarActionCallback();
-    }
-    this.hideSnackbar();
+  private showConfirmDialog(title: string, message: string, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm: () => void, onCancel?: () => void): void {
+    if (confirm(`${title}\n\n${message}`)) onConfirm();
+    else if (onCancel) onCancel();
   }
 
-  private showConfirmDialog(
-    title: string,
-    message: string,
-    confirmText: string = 'Confirm',
-    cancelText: string = 'Cancel',
-    onConfirm: () => void,
-    onCancel?: () => void
-  ): void {
-    if (confirm(`${title}\n\n${message}`)) {
-      onConfirm();
-    } else if (onCancel) {
-      onCancel();
-    }
-  }
-
-  getStatusColor(status: string): string {
-    switch (status) {
-      case 'draft': return '#6c757d';
-      case 'submitted': return '#007bff';
-      case 'approved': return '#28a745';
-      case 'rejected': return '#dc3545';
-      default: return '#6c757d';
-    }
-  }
-
-  getStatusIcon(status: string): string {
-    switch (status) {
-      case 'draft': return 'fa-edit';
-      case 'submitted': return 'fa-paper-plane';
-      case 'approved': return 'fa-check-circle';
-      case 'rejected': return 'fa-times-circle';
-      default: return 'fa-question-circle';
-    }
-  }
-
-  get window(): any {
-    return window;
-  }
+  get window(): any { return window; }
 
   private convertToLocalTable(dbTable: UserTable): LocalUserTable {
     return {
@@ -1098,7 +977,6 @@ export class DailyProductionComponent implements OnInit {
     try {
       const dbTables = await this.dbService.getUserTables(this.currentUser.id);
       this.userTables = dbTables.map(table => this.convertToLocalTable(table));
-      await this.loadPendingApprovals();
     } catch (error) {
       console.error('Error loading user tables:', error);
       this.showSnackbarMessage('Error loading user tables', 'error');
@@ -1178,28 +1056,31 @@ export class DailyProductionComponent implements OnInit {
 
   async renameTable(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable) return;
-    
+
+    const currentTable = this.currentTable;
+
     this.showPromptDialog(
       'Rename Table',
       'Enter new table name:',
       'Rename',
       'Cancel',
       async (newName: string) => {
-        if (!newName?.trim() || newName === this.currentTable?.name) {
-          if (!newName?.trim()) {
-            this.showSnackbarMessage('Table name is required', 'error');
-          }
+        if (!newName?.trim() || newName.trim() === currentTable.name) {
+          if (!newName?.trim()) this.showSnackbarMessage('Table name is required', 'error');
           return;
         }
 
+        const trimmedName = newName.trim();
+
         try {
-          await this.dbService.updateTableName(this.selectedTableId, newName.trim());
-          this.currentTable!.name = newName.trim();
-          this.currentTable!.updatedAt = new Date();
+          await this.dbService.updateTableName(this.selectedTableId, trimmedName);
+          
+          currentTable.name = trimmedName;
+          currentTable.updatedAt = new Date();
           
           const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
           if (tableIndex !== -1) {
-            this.userTables[tableIndex].name = newName.trim();
+            this.userTables[tableIndex].name = trimmedName;
             this.userTables[tableIndex].updatedAt = new Date();
           }
           
@@ -1209,7 +1090,7 @@ export class DailyProductionComponent implements OnInit {
           this.showSnackbarMessage('Failed to rename table', 'error');
         }
       },
-      this.currentTable.name
+      currentTable.name
     );
   }
 
@@ -1239,263 +1120,6 @@ export class DailyProductionComponent implements OnInit {
         }
       }
     );
-  }
-
-  async submitTableForApproval(): Promise<void> {
-    if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
-    
-    this.showConfirmDialog(
-      'Submit Table',
-      'Submit this entire table for approval? All items will be submitted.',
-      'Submit',
-      'Cancel',
-      async () => {
-        try {
-          await this.dbService.submitTableForApproval(
-            this.selectedTableId,
-            this.currentUser.full_name || this.currentUser.username
-          );
-          
-          this.currentTable!.status = 'submitted';
-          this.currentTable!.submittedBy = this.currentUser.full_name || this.currentUser.username;
-          this.currentTable!.submittedDate = new Date();
-          this.currentTable!.updatedAt = new Date();
-          
-          this.requisitionItems.forEach(item => {
-            if (item.status === 'draft') {
-              item.status = 'submitted';
-              item.submittedBy = this.currentUser.full_name || this.currentUser.username;
-              item.submittedDate = new Date();
-            }
-          });
-          
-          await this.saveTableData();
-          await this.loadPendingApprovals();
-          this.showSnackbarMessage('Table submitted for approval', 'success');
-        } catch (error) {
-          console.error('Error submitting table:', error);
-          this.showSnackbarMessage('Failed to submit table', 'error');
-        }
-      }
-    );
-  }
-
-  async resubmitTable(): Promise<void> {
-    if (!this.selectedTableId || !this.currentTable || this.currentTable.status !== 'rejected') {
-      return;
-    }
-    
-    this.showConfirmDialog(
-      'Resubmit Table',
-      'Resubmit this table for approval?',
-      'Resubmit',
-      'Cancel',
-      async () => {
-        try {
-          await this.supabaseService.getClient()
-            .from('user_tables')
-            .update({
-              status: 'submitted',
-              submitted_by: this.currentUser.full_name || this.currentUser.username,
-              submitted_date: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              remarks: null
-            })
-            .eq('id', this.selectedTableId);
-          
-          await this.supabaseService.getClient()
-            .from('requisitions')
-            .update({
-              status: 'submitted',
-              submitted_by: this.currentUser.full_name || this.currentUser.username,
-              submitted_date: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              remarks: null
-            })
-            .eq('table_id', this.selectedTableId);
-          
-          await this.loadTableData();
-          this.showSnackbarMessage('Table resubmitted for approval', 'success');
-        } catch (error) {
-          console.error('Error resubmitting table:', error);
-          this.showSnackbarMessage('Failed to resubmit table', 'error');
-        }
-      }
-    );
-  }
-
-  canSubmitTable(): boolean {
-    if (!this.currentTable) return false;
-    if (this.currentTable.status === 'approved') return false;
-    if (!this.isSubmissionAllowed) return false;
-    return this.requisitionItems.length > 0;
-  }
-
-  isTableSubmissionAllowed(): boolean {
-    return this.isSubmissionAllowed;
-  }
-
-  isExportEnabled(): boolean {
-    return this.currentTable?.status === 'approved';
-  }
-
-  isTableEditable(): boolean {
-    return this.currentTable?.status === 'draft' || this.currentTable?.status === 'rejected';
-  }
-
-  async loadPendingApprovals(): Promise<void> {
-    if (!this.isAdmin) {
-      this.pendingApprovals = [];
-      this.pendingApprovalsCount = 0;
-      this.cdRef.detectChanges();
-      return;
-    }
-    
-    try {
-      const dbTables = await this.dbService.getPendingApprovals();
-      this.pendingApprovals = dbTables.map(table => this.convertToLocalTable(table));
-      this.pendingApprovalsCount = this.pendingApprovals.length;
-      this.cdRef.detectChanges();
-    } catch (error) {
-      console.error('Error loading pending approvals:', error);
-      this.showSnackbarMessage('Error loading pending approvals', 'error');
-      this.pendingApprovalsCount = 0;
-    }
-  }
-
-  viewPendingApprovals(): void {
-    this.showApprovalPanel = true;
-  }
-
-  closeApprovalPanel(): void {
-    this.showApprovalPanel = false;
-  }
-
-  private removeFromPendingList(tableId: string): void {
-    const index = this.pendingApprovals.findIndex(t => t.id === tableId);
-    if (index !== -1) {
-      this.pendingApprovals.splice(index, 1);
-      this.pendingApprovalsCount = this.pendingApprovals.length;
-      this.cdRef.detectChanges();
-    }
-  }
-
-  async approveTable(tableId: string): Promise<void> {
-    this.showPromptDialog(
-      'Approve Table',
-      'Enter approval remarks (optional):',
-      'Approve',
-      'Cancel',
-      async (remarks: string) => {
-        try {
-          const adminName = this.currentUser.full_name || this.currentUser.username;
-
-          const { error: tableError } = await this.supabaseService.getClient()
-            .from('user_tables')
-            .update({
-              status: 'approved',
-              approved_by: adminName,
-              approved_date: new Date().toISOString(),
-              reviewed_by: adminName,
-              reviewed_date: new Date().toISOString(),
-              remarks: remarks?.trim() || null,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', tableId);
-
-          if (tableError) throw tableError;
-
-          const { error: reqError } = await this.supabaseService.getClient()
-            .from('requisitions')
-            .update({
-              status: 'approved',
-              updated_at: new Date().toISOString()
-            })
-            .eq('table_id', tableId);
-
-          if (reqError) throw reqError;
-
-          this.showSnackbarMessage('Table approved successfully', 'success');
-
-          this.removeFromPendingList(tableId);
-
-          await this.loadPendingApprovals();
-          await this.loadUserTables();
-
-          if (this.selectedTableId === tableId) {
-            await this.loadTableData();
-          }
-
-        } catch (error: any) {
-          console.error('Error approving table:', error);
-          this.showSnackbarMessage(`Failed to approve: ${error.message || 'Unknown error'}`, 'error');
-        }
-      }
-    );
-  }
-
-  async rejectTable(tableId: string): Promise<void> {
-    this.showPromptDialog(
-      'Reject Table',
-      'Enter rejection reason (required):',
-      'Reject',
-      'Cancel',
-      async (remarks: string) => {
-        if (!remarks?.trim()) {
-          this.showSnackbarMessage('Rejection reason is required', 'error');
-          return;
-        }
-
-        try {
-          const adminName = this.currentUser.full_name || this.currentUser.username;
-
-          const { error: tableError } = await this.supabaseService.getClient()
-            .from('user_tables')
-            .update({
-              status: 'rejected',
-              reviewed_by: adminName,
-              reviewed_date: new Date().toISOString(),
-              remarks: remarks.trim(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', tableId);
-
-          if (tableError) throw tableError;
-
-          const { error: reqError } = await this.supabaseService.getClient()
-            .from('requisitions')
-            .update({
-              status: 'rejected',
-              remarks: remarks.trim(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('table_id', tableId);
-
-          if (reqError) throw reqError;
-
-          this.showSnackbarMessage('Table rejected', 'info');
-
-          this.removeFromPendingList(tableId);
-
-          await this.loadPendingApprovals();
-          await this.loadUserTables();
-
-          if (this.selectedTableId === tableId) {
-            await this.loadTableData();
-          }
-
-        } catch (error: any) {
-          console.error('Error rejecting table:', error);
-          this.showSnackbarMessage(`Failed to reject: ${error.message || 'Unknown error'}`, 'error');
-        }
-      }
-    );
-  }
-
-  async viewTableDetails(tableId: string): Promise<void> {
-    this.selectedTableId = tableId;
-    await this.loadTableData();
-    this.closeApprovalPanel();
   }
 
   private async saveTableData(): Promise<void> {

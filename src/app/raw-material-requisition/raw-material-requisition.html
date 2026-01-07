@@ -1,0 +1,663 @@
+<div class="requisition-container">
+  <!-- SINGLE ROW CONTROLS -->
+  <div class="single-row-controls">
+    <!-- Table Management -->
+    <div class="control-section">
+      <div class="table-management-compact">
+        <select class="form-select-sm" [(ngModel)]="selectedTableId" (change)="loadTableData()">
+          <option value="">-- Select Table --</option>
+          @for (table of userTables; track table.id) {
+            <option [value]="table.id">{{ table.name }}</option>
+          }
+        </select>
+        
+        <button class="btn-sm btn-icon" (click)="createNewTable()" title="New Table">
+          <i class="fas fa-plus"></i>
+        </button>
+        
+        <button class="btn-sm btn-icon" [disabled]="!selectedTableId" (click)="renameTable()" title="Rename">
+          <i class="fas fa-edit"></i>
+        </button>
+        
+        <button class="btn-sm btn-danger" [disabled]="!selectedTableId" (click)="deleteTable()" title="Delete">
+          <i class="fas fa-trash"></i>
+        </button>
+        
+        @if (selectedTableId) {
+          @if (currentTable?.status === 'rejected') {
+            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="submitTableForApproval()" title="Resubmit Table">
+              <i class="fas fa-redo"></i> Resubmit
+            </button>
+          } @else if (currentTable?.status === 'draft') {
+            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="submitTableForApproval()" title="Submit Table">
+              <i class="fas fa-paper-plane"></i> Submit
+            </button>
+          }
+        }
+      </div>
+    </div>
+
+    <!-- Admin Approvals -->
+    @if (isAdmin) {
+      <div class="control-section">
+        <div class="admin-controls">
+          <button class="btn-sm btn-warning" (click)="viewPendingApprovals()" title="Pending Approvals">
+            <i class="fas fa-tasks"></i> Approvals
+            @if (pendingApprovalsCount > 0) {
+              <span class="badge">{{ pendingApprovalsCount }}</span>
+            }
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- Actions -->
+    <div class="control-section">
+      <div class="action-buttons-compact">
+        <div class="dropdown">
+          <button class="btn-sm btn-icon" 
+                  [disabled]="requisitionItems.length === 0" 
+                  (click)="toggleExportDropdown()"
+                  title="Export">
+            <i class="fas fa-download"></i> Export
+          </button>
+          @if (isExportDropdownOpen) {
+            <div class="dropdown-menu">
+              <button type="button" (click)="exportData('all')"><i class="fas fa-file-excel"></i> All Data</button>
+              <button type="button" (click)="exportData('perishable')"><i class="fas fa-carrot"></i> Perishable</button>
+              <button type="button" (click)="exportData('shelf-stable')"><i class="fas fa-box"></i> Shelf-Stable</button>
+            </div>
+          }
+        </div>
+
+        <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId || !isTableEditable()" title="Clear Table">
+          <i class="fas fa-trash"></i> Clear
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  @if (currentTable?.status === 'submitted') {
+    <div class="status-bar info">
+      <i class="fas fa-hourglass-half"></i>
+      <span>This table is submitted for approval (Submitted by {{ currentTable?.submittedBy }} on {{ currentTable?.submittedDate | date:'medium' }})</span>
+    </div>
+  }
+  @if (currentTable?.status === 'approved') {
+    <div class="status-bar success">
+      <i class="fas fa-check-circle"></i>
+      <span>This table is approved (Approved by {{ currentTable?.approvedBy }} on {{ currentTable?.approvedDate | date:'medium' }})</span>
+    </div>
+  }
+  @if (currentTable?.status === 'rejected') {
+    <div class="status-bar warning">
+      <i class="fas fa-times-circle"></i>
+      <span>This table is rejected (Rejected by {{ currentTable?.reviewedBy }} on {{ currentTable?.reviewedDate | date:'medium' }})</span>
+      @if (currentTable?.remarks) {
+        <span class="remarks">Reason: {{ currentTable?.remarks }}</span>
+      }
+    </div>
+  }
+  
+  <div class="status-bar">
+    <span class="stats">
+      <i class="fas fa-table"></i> {{ currentTable?.name || 'No table selected' }}
+      <span class="divider">•</span>
+      <i class="fas fa-list"></i> {{ filteredItems.length }} requisitions
+      <span class="divider">•</span>
+      <i class="fas fa-database"></i> Auto-saved
+    </span>
+    @if (requisitionItems.length > itemsPerPage) {
+      <span class="pagination-mini">
+        <button type="button" class="btn-xs" (click)="changePage(-1)" [disabled]="currentPage === 1">
+          <i class="fas fa-chevron-left"></i>
+        </button>
+        <span>Page {{ currentPage }}/{{ totalPages }}</span>
+        <button type="button" class="btn-xs" (click)="changePage(1)" [disabled]="currentPage === totalPages">
+          <i class="fas fa-chevron-right"></i>
+        </button>
+      </span>
+    }
+  </div>
+
+  <!-- Admin Approval Panel -->
+  @if (showApprovalPanel && isAdmin) {
+    <div class="modal-overlay" (click)="closeApprovalPanel()">
+      <div class="modal-content" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-tasks"></i> Pending Approvals ({{ pendingApprovalsCount }})</h3>
+          <button type="button" class="modal-close" (click)="closeApprovalPanel()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          @if (pendingApprovals.length === 0) {
+            <div class="empty-approvals">
+              <i class="fas fa-check-circle"></i>
+              <p>No pending approvals</p>
+            </div>
+          } @else {
+            <div class="approval-list">
+              @for (table of pendingApprovals; track table.id) {
+                <div class="approval-item">
+                  <div class="approval-info">
+                    <strong>{{ table.name }}</strong>
+                    <div class="approval-details">
+                      <span>Submitted by: {{ table.submittedBy }}</span>
+                      <span>Date: {{ table.submittedDate | date:'medium' }}</span>
+                      <span>Items: {{ table.itemCount }}</span>
+                    </div>
+                  </div>
+                  <div class="approval-actions">
+                    <button type="button" class="btn-xs btn-primary" (click)="viewTableDetails(table.id)">
+                      <i class="fas fa-eye"></i> View
+                    </button>
+                    <button type="button" class="btn-xs btn-success" (click)="approveTable(table.id)">
+                      <i class="fas fa-check"></i> Approve
+                    </button>
+                    <button type="button" class="btn-xs btn-danger" (click)="rejectTable(table.id)">
+                      <i class="fas fa-times"></i> Reject
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Filter Controls -->
+  <div class="filter-controls">
+    <div class="filter-row" [formGroup]="filterForm">
+      <div class="filter-group">
+        <i class="fas fa-search"></i>
+        <input type="text" formControlName="search" placeholder="Search requisitions..." class="filter-input">
+      </div>
+      
+      <div class="filter-group">
+        <select formControlName="status" class="filter-select">
+          @for (filter of statusFilters; track filter.value) {
+            <option [value]="filter.value">{{ filter.label }}</option>
+          }
+        </select>
+      </div>
+      
+      <div class="filter-group">
+        <select formControlName="type" class="filter-select">
+          @for (filter of typeFilters; track filter.value) {
+            <option [value]="filter.value">{{ filter.label }}</option>
+          }
+        </select>
+      </div>
+      
+      <div class="filter-group">
+        <input type="date" formControlName="dateFrom" class="filter-date" placeholder="From Date">
+      </div>
+      
+      <div class="filter-group">
+        <input type="date" formControlName="dateTo" class="filter-date" placeholder="To Date">
+      </div>
+      
+      <button type="button" class="btn-sm btn-secondary" (click)="filterForm.reset()">
+        <i class="fas fa-times"></i> Clear Filters
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Left Panel: Add Requisition Form -->
+    <div class="left-panel">
+      <div class="form-card">
+        <h3><i class="fas fa-plus-circle"></i> Add New Requisition</h3>
+        
+        <form [formGroup]="requisitionForm" (ngSubmit)="onSubmitRequisition()">
+          <!-- Requisition Type -->
+          <div class="form-group">
+            <label>Requisition Type *</label>
+            <div class="type-options">
+              @for (type of requisitionTypes; track type.value) {
+                <label class="type-option">
+                  <input type="radio" formControlName="requisitionType" [value]="type.value">
+                  <span class="type-label">{{ type.label }}</span>
+                </label>
+              }
+            </div>
+          </div>
+
+          <!-- Category and SKU -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category *</label>
+              <select class="form-control" formControlName="category" (change)="onCategoryChange()">
+                <option value="">Select Category</option>
+                @for (category of categories; track category) {
+                  <option [value]="category">{{ category }}</option>
+                }
+              </select>
+              @if (requisitionForm.get('category')?.invalid && requisitionForm.get('category')?.touched) {
+                <small class="text-danger">Category is required</small>
+              }
+            </div>
+            
+            <div class="form-group">
+              <label>SKU *</label>
+              <select class="form-control" formControlName="sku" (change)="onSkuChange()" [disabled]="skus.length === 0">
+                <option value="">Select SKU</option>
+                @for (sku of skus; track sku.code) {
+                  <option [value]="sku.name">{{ sku.name }}</option>
+                }
+              </select>
+              @if (requisitionForm.get('sku')?.invalid && requisitionForm.get('sku')?.touched) {
+                <small class="text-danger">SKU is required</small>
+              }
+            </div>
+          </div>
+
+          <!-- SKU Code (Readonly) -->
+          <div class="form-group">
+            <label>SKU Code</label>
+            <input type="text" class="form-control" formControlName="skuCode" readonly>
+          </div>
+
+          <!-- Quantity and Unit -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Quantity Needed *</label>
+              <input type="number" class="form-control" formControlName="qtyNeeded" min="1" max="999">
+              @if (requisitionForm.get('qtyNeeded')?.invalid && requisitionForm.get('qtyNeeded')?.touched) {
+                <small class="text-danger">Quantity must be between 1 and 999</small>
+              }
+            </div>
+            
+            <div class="form-group">
+              <label>Unit *</label>
+              <select class="form-control" formControlName="unit">
+                <option value="">Select Unit</option>
+                @for (unit of units; track unit.value) {
+                  <option [value]="unit.value">{{ unit.label }}</option>
+                }
+              </select>
+              @if (requisitionForm.get('unit')?.invalid && requisitionForm.get('unit')?.touched) {
+                <small class="text-danger">Unit is required</small>
+              }
+            </div>
+          </div>
+
+          <!-- Supplier -->
+          <div class="form-group">
+            <label>Supplier *</label>
+            <select class="form-control" formControlName="supplier" (change)="onSupplierChange()">
+              <option value="">Select Supplier</option>
+              @for (supplier of suppliers; track supplier) {
+                <option [value]="supplier">{{ supplier }}</option>
+              }
+            </select>
+            @if (requisitionForm.get('supplier')?.invalid && requisitionForm.get('supplier')?.touched) {
+              <small class="text-danger">Supplier is required</small>
+            }
+            
+            @if (showCustomSupplierField) {
+              <div class="custom-input-group">
+                <input type="text" [(ngModel)]="customSupplierInput" [ngModelOptions]="{standalone: true}" 
+                       placeholder="Enter supplier name" class="form-control custom-input">
+                <button type="button" class="btn-xs btn-primary" (click)="addCustomSupplier()" [disabled]="!customSupplierInput.trim()">
+                  Add
+                </button>
+              </div>
+            }
+          </div>
+
+          <!-- Brand -->
+          <div class="form-group">
+            <label>Brand *</label>
+            <select class="form-control" formControlName="brand" (change)="onBrandChange()">
+              <option value="">Select Brand</option>
+              @for (brand of brands; track brand) {
+                <option [value]="brand">{{ brand }}</option>
+              }
+            </select>
+            @if (requisitionForm.get('brand')?.invalid && requisitionForm.get('brand')?.touched) {
+              <small class="text-danger">Brand is required</small>
+            }
+            
+            @if (showCustomBrandField) {
+              <div class="custom-input-group">
+                <input type="text" [(ngModel)]="customBrandInput" [ngModelOptions]="{standalone: true}" 
+                       placeholder="Enter brand name" class="form-control custom-input">
+                <button type="button" class="btn-xs btn-primary" (click)="addCustomBrand()" [disabled]="!customBrandInput.trim()">
+                  Add
+                </button>
+              </div>
+            }
+          </div>
+
+          <!-- Remarks -->
+          <div class="form-group">
+            <label>Remarks</label>
+            <textarea class="form-control" formControlName="remarks" rows="2" placeholder="Additional notes..."></textarea>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="form-footer">
+            <button type="submit" class="btn btn-primary btn-block" 
+                    [disabled]="!canAddRequisition()"
+                    [title]="getAddButtonTooltip()">
+              <i class="fas fa-plus"></i> Add Requisition
+            </button>
+            
+            <!-- Error Info -->
+            <div class="error-info" *ngIf="!canAddRequisition()">
+              <small class="text-muted">
+                <i class="fas fa-info-circle"></i> 
+                Cannot add requisition because:
+                <span *ngIf="!selectedTableId">• No table selected</span>
+                <span *ngIf="!isTableEditable()">• Table is not editable</span>
+                <span *ngIf="requisitionForm.invalid">• Form has validation errors</span>
+              </small>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Right Panel: Requisitions List -->
+    <div class="right-panel">
+      <div class="table-card">
+        <div class="table-header">
+          <h3><i class="fas fa-clipboard-list"></i> Material Requisitions</h3>
+          <div class="table-info">
+            <span class="total-count">{{ requisitionItems.length }} total</span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="requisition-table">
+            <thead>
+              <tr>
+                <th style="width:40px;"></th>
+                <th class="sortable" (click)="sortBy('requisitionNumber')">Req #</th>
+                <th class="sortable" (click)="sortBy('type')">Type</th>
+                <th class="sortable" (click)="sortBy('skuCode')">SKU Code</th>
+                <th class="sortable" (click)="sortBy('skuName')">SKU Name</th>
+                <th class="sortable" (click)="sortBy('qtyNeeded')">Qty</th>
+                <th class="sortable" (click)="sortBy('supplier')">Supplier</th>
+                <th class="sortable" (click)="sortBy('brand')">Brand</th>
+                <th class="sortable" (click)="sortBy('status')">Status</th>
+                <th style="width:100px;">Materials</th>
+                <th style="width:80px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (filteredItems.length === 0) {
+                <tr>
+                  <td colspan="11">
+                    <div class="empty-state">
+                      <i class="fas fa-inbox"></i>
+                      <p>{{ searchQuery || filterForm.value.status || filterForm.value.type ? 'No matching requisitions found' : 'No requisitions added yet' }}</p>
+                      @if (!selectedTableId) {
+                        <p class="empty-hint">Select or create a table to start adding requisitions</p>
+                      } @else if (currentTable?.status !== 'draft') {
+                        <p class="empty-hint">Table is {{ currentTable?.status }}, cannot add new requisitions</p>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+
+              @for (item of filteredItems; track item.id) {
+                <tr [class.expanded]="expandedRows.has(item.id)">
+                  <td>
+                    <button type="button" class="toggle-btn" (click)="toggleRow(item.id)">
+                      <i class="fas" [class.fa-chevron-up]="expandedRows.has(item.id)" [class.fa-chevron-down]="!expandedRows.has(item.id)"></i>
+                    </button>
+                  </td>
+                  <td><strong>{{ item.requisitionNumber }}</strong></td>
+                  <td>
+                    <span class="type-badge" [class]="item.type">
+                      {{ item.type === 'perishable' ? 'Perishable' : 'Shelf-Stable' }}
+                    </span>
+                  </td>
+                  <td><code>{{ item.skuCode }}</code></td>
+                  <td>{{ item.skuName }}</td>
+                  <td class="numeric">{{ item.qtyNeeded }} {{ item.unit }}</td>
+                  <td>{{ item.supplier }}</td>
+                  <td>{{ item.brand }}</td>
+                  <td>
+                    <span class="status-badge" [style.background-color]="getStatusColor(item.status)">
+                      <i class="fas" [class]="getStatusIcon(item.status)"></i>
+                      {{ 
+                        item.status === 'draft' ? 'Draft' : 
+                        item.status === 'submitted' ? 'Submitted' : 
+                        item.status === 'approved' ? 'Approved' : 
+                        item.status === 'rejected' ? 'Rejected' : 
+                        item.status === 'partially-served' ? 'Partially Served' : 
+                        item.status === 'fully-served' ? 'Fully Served' : item.status 
+                      }}
+                    </span>
+                  </td>
+                  <td class="numeric">{{ item.materials.length }}</td>
+                  <td>
+                    <div class="action-buttons">
+                      <button type="button" class="btn-icon btn-sm btn-primary" (click)="openAddMaterialModal(item.id)" 
+                              [disabled]="!isTableEditable()" title="Add Material">
+                        <i class="fas fa-plus"></i>
+                      </button>
+                      <button type="button" class="btn-icon btn-sm btn-danger" (click)="deleteRequisition(item.id)" 
+                              [disabled]="!isTableEditable()" title="Delete">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Expanded Details -->
+                @if (expandedRows.has(item.id)) {
+                  <tr class="details-row">
+                    <td colspan="11">
+                      <div class="details-content">
+                        <!-- Materials List -->
+                        <div class="materials-section">
+                          <h5><i class="fas fa-boxes"></i> Materials ({{ item.materials.length }})</h5>
+                          
+                          @if (item.materials.length === 0) {
+                            <div class="no-materials">
+                              <i class="fas fa-box-open"></i>
+                              <p>No materials added yet. Click the plus button to add materials.</p>
+                            </div>
+                          } @else {
+                            <div class="materials-grid">
+                              @for (material of item.materials; track material.id) {
+                                <div class="material-card" [class]="material.status">
+                                  <div class="material-header">
+                                    <div class="material-title">
+                                      <h6>{{ material.name }}</h6>
+                                      <span class="material-type">{{ material.type }}</span>
+                                    </div>
+                                    <span class="material-status" [style.background-color]="getMaterialStatusColor(material.status || 'pending')">
+                                      {{ material.status === 'pending' ? 'Pending' : 
+                                         material.status === 'partially-served' ? 'Partially Served' : 
+                                         'Fully Served' }}
+                                    </span>
+                                  </div>
+                                  
+                                  <div class="material-details">
+                                    <div class="detail-row">
+                                      <div class="detail">
+                                        <span class="detail-label">Quantity:</span>
+                                        <span class="detail-value">{{ material.qty }} {{ material.unit }}</span>
+                                      </div>
+                                      <div class="detail">
+                                        <span class="detail-label">Required:</span>
+                                        <span class="detail-value">{{ material.requiredQty }} {{ material.unit }}</span>
+                                      </div>
+                                      <div class="detail">
+                                        <span class="detail-label">Brand:</span>
+                                        <span class="detail-value">{{ material.brand || '-' }}</span>
+                                      </div>
+                                      <div class="detail">
+                                        <span class="detail-label">Supplier:</span>
+                                        <span class="detail-value">{{ material.supplier || '-' }}</span>
+                                      </div>
+                                    </div>
+                                    
+                                    <div class="served-section">
+                                      <label>Served Quantity:</label>
+                                      <div class="served-controls">
+                                        <input type="number" class="served-input" 
+                                               [value]="material.servedQty || 0"
+                                               min="0" [max]="material.requiredQty"
+                                               (change)="updateMaterialServedQty(item.id, material.id, $any($event.target).value)"
+                                               [disabled]="!isTableEditable()">
+                                        <span class="unit-label">{{ material.unit }}</span>
+                                        @if (material.servedDate) {
+                                          <span class="served-date">
+                                            <i class="fas fa-calendar"></i>
+                                            {{ material.servedDate | date:'shortDate' }}
+                                          </span>
+                                        }
+                                      </div>
+                                    </div>
+                                    
+                                    @if (material.remarks) {
+                                      <div class="material-remarks">
+                                        <strong>Remarks:</strong> {{ material.remarks }}
+                                      </div>
+                                    }
+                                  </div>
+                                  
+                                  <div class="material-actions">
+                                    <button type="button" class="btn-xs btn-danger" 
+                                            (click)="deleteMaterial(item.id, material.id)"
+                                            [disabled]="!isTableEditable()">
+                                      <i class="fas fa-trash"></i> Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                        
+                        @if (item.remarks) {
+                          <div class="requisition-remarks">
+                            <strong><i class="fas fa-comment"></i> Requisition Remarks:</strong> {{ item.remarks }}
+                          </div>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        @if (requisitionItems.length > itemsPerPage) {
+          <div class="pagination">
+            <button type="button" class="btn-pagination" (click)="changePage(-1)" [disabled]="currentPage === 1">
+              <i class="fas fa-chevron-left"></i> Previous
+            </button>
+            <span class="page-info">Page {{ currentPage }} of {{ totalPages }}</span>
+            <button type="button" class="btn-pagination" (click)="changePage(1)" [disabled]="currentPage === totalPages">
+              Next <i class="fas fa-chevron-right"></i>
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Material Modal -->
+  @if (showAddMaterialModal) {
+    <div class="modal-overlay" (click)="closeAddMaterialModal()">
+      <div class="modal-content modal-sm" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-plus"></i> Add Material</h3>
+          <button type="button" class="modal-close" (click)="closeAddMaterialModal()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form [formGroup]="materialForm" (ngSubmit)="addMaterial()">
+            <div class="form-group">
+              <label>Material Name *</label>
+              <input type="text" class="form-control" formControlName="name" placeholder="Enter material name">
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>Type *</label>
+                <select class="form-control" formControlName="type">
+                  @for (type of materialTypes; track type.value) {
+                    <option [value]="type.value">{{ type.label }}</option>
+                  }
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label>Unit *</label>
+                <select class="form-control" formControlName="unit">
+                  @for (unit of units; track unit.value) {
+                    <option [value]="unit.value">{{ unit.label }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>Quantity *</label>
+                <input type="number" class="form-control" formControlName="quantity" min="0.01" step="0.01">
+              </div>
+              
+              <div class="form-group">
+                <label>Required Qty *</label>
+                <input type="number" class="form-control" formControlName="requiredQty" min="0.01" step="0.01">
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>Brand</label>
+                <input type="text" class="form-control" formControlName="brand" placeholder="Optional">
+              </div>
+              
+              <div class="form-group">
+                <label>Supplier</label>
+                <input type="text" class="form-control" formControlName="supplier" placeholder="Optional">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Remarks</label>
+              <textarea class="form-control" formControlName="remarks" rows="2" placeholder="Optional remarks..."></textarea>
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="closeAddMaterialModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="materialForm.invalid">Add Material</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Snackbar -->
+  @if (showSnackbar) {
+    <div class="snackbar" [class]="'snackbar-' + snackbarType">
+      <div class="snackbar-content">
+        <i class="fas" [class]="getSnackbarIcon()"></i>
+        <span class="snackbar-message">{{ snackbarMessage }}</span>
+      </div>
+      <button type="button" class="snackbar-close" (click)="hideSnackbar()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  }
+</div>

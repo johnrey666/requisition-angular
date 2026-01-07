@@ -627,8 +627,186 @@ export class DatabaseService {
     }
   }
 
-  // ========== REQUISITION OPERATIONS ==========
+  // ========== MATERIAL REQUISITION OPERATIONS (UPDATED FOR NEW TABLES) ==========
   async createRequisition(
+    requisitionData: any, 
+    materials: any[] = []
+  ): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
+    try {
+      console.log('Creating requisition in material_requisitions table:', requisitionData);
+      
+      // Create requisition in NEW material_requisitions table
+      const { data: requisition, error: requisitionError } = await this.supabase
+        .from('material_requisitions')
+        .insert([{
+          ...requisitionData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (requisitionError) {
+        console.error('Material requisition creation error:', requisitionError);
+        return { success: false, error: requisitionError };
+      }
+
+      // Add materials if provided
+      if (materials.length > 0) {
+        const formattedMaterials = materials.map(material => ({
+          requisition_id: requisition.id,
+          material_name: material.name,
+          type: material.type || 'raw-material',
+          qty_per_batch: material.qty || 1,
+          unit: material.unit || 'kg',
+          required_qty: material.requiredQty || 1,
+          served_qty: material.servedQty || 0,
+          remarks: material.remarks || '',
+          served_date: material.servedDate,
+          is_unserved: material.isUnserved || false,
+          brand: material.brand || '',
+          supplier: material.supplier || '',
+          status: material.status || 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }));
+
+        const { error: materialsError } = await this.supabase
+          .from('material_requisition_materials')
+          .insert(formattedMaterials);
+
+        if (materialsError) {
+          // Rollback requisition if materials fail
+          await this.supabase.from('material_requisitions').delete().eq('id', requisition.id);
+          console.error('Materials creation error:', materialsError);
+          return { success: false, error: materialsError };
+        }
+      }
+
+      return { success: true, requisitionId: requisition.id };
+    } catch (error: any) {
+      console.error('Create requisition exception:', error);
+      return { success: false, error };
+    }
+  }
+
+  async getTableRequisitions(tableId: string): Promise<any[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('material_requisitions')
+        .select(`
+          *,
+          materials:material_requisition_materials(*)
+        `)
+        .eq('table_id', tableId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Get material requisitions error:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Get material requisitions exception:', error);
+      return [];
+    }
+  }
+
+  async deleteRequisition(requisitionId: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      // Delete materials first from NEW table
+      const { error: materialsError } = await this.supabase
+        .from('material_requisition_materials')
+        .delete()
+        .eq('requisition_id', requisitionId);
+
+      if (materialsError) {
+        console.error('Delete materials error:', materialsError);
+        return { success: false, error: materialsError };
+      }
+
+      // Delete requisition from NEW table
+      const { error: requisitionError } = await this.supabase
+        .from('material_requisitions')
+        .delete()
+        .eq('id', requisitionId);
+
+      if (requisitionError) {
+        console.error('Delete material requisition error:', requisitionError);
+        return { success: false, error: requisitionError };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Delete requisition exception:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== NEW REQUISITION UPDATE METHODS ==========
+  async updateRequisitionQty(requisitionId: string, qty: number): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          qty_needed: qty,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', requisitionId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateRequisitionQty:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateRequisitionSupplier(requisitionId: string, supplier: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          supplier: supplier,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', requisitionId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateRequisitionSupplier:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateMaterialServedQty(requisitionId: string, materialName: string, servedQty: number, remarks?: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const updates: any = {
+        served_qty: servedQty,
+        updated_at: new Date().toISOString(),
+        served_date: new Date().toISOString(),
+        is_unserved: servedQty < 1 // This needs to be calculated based on required_qty
+      };
+
+      if (remarks !== undefined) {
+        updates.remarks = remarks;
+      }
+
+      const { error } = await this.supabase
+        .from('material_requisition_materials')
+        .update(updates)
+        .eq('requisition_id', requisitionId)
+        .eq('material_name', materialName);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateMaterialServedQty:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== LEGACY REQUISITION OPERATIONS (kept for backward compatibility) ==========
+  async createLegacyRequisition(
     requisitionData: Omit<Requisition, 'id' | 'created_at' | 'updated_at'>,
     materials: any[],
     tableId?: string
@@ -646,7 +824,7 @@ export class DatabaseService {
         .single();
 
       if (requisitionError) {
-        console.error('Requisition creation error:', requisitionError);
+        console.error('Legacy requisition creation error:', requisitionError);
         return { success: false, error: requisitionError };
       }
 
@@ -668,19 +846,19 @@ export class DatabaseService {
         .insert(formattedMaterials);
 
       if (materialsError) {
-        console.error('Materials creation error:', materialsError);
+        console.error('Legacy materials creation error:', materialsError);
         await this.supabase.from('requisitions').delete().eq('id', requisition.id);
         return { success: false, error: materialsError };
       }
 
       return { success: true, requisitionId: requisition.id };
     } catch (error) {
-      console.error('Create requisition exception:', error);
+      console.error('Create legacy requisition exception:', error);
       return { success: false, error };
     }
   }
 
-  async updateRequisition(
+  async updateLegacyRequisition(
     id: string,
     requisitionData: Partial<Requisition>,
     materials?: any[]
@@ -695,7 +873,7 @@ export class DatabaseService {
         .eq('id', id);
 
       if (requisitionError) {
-        console.error('Requisition update error:', requisitionError);
+        console.error('Legacy requisition update error:', requisitionError);
         return { success: false, error: requisitionError };
       }
 
@@ -706,7 +884,7 @@ export class DatabaseService {
           .eq('requisition_id', id);
 
         if (deleteError) {
-          console.error('Error deleting existing materials:', deleteError);
+          console.error('Error deleting existing legacy materials:', deleteError);
           return { success: false, error: deleteError };
         }
 
@@ -728,19 +906,19 @@ export class DatabaseService {
           .insert(formattedMaterials);
 
         if (materialsError) {
-          console.error('Materials update error:', materialsError);
+          console.error('Legacy materials update error:', materialsError);
           return { success: false, error: materialsError };
         }
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Error in updateRequisition:', error);
+      console.error('Error in updateLegacyRequisition:', error);
       return { success: false, error };
     }
   }
 
-  async getRequisitions(userId?: string): Promise<Requisition[]> {
+  async getLegacyRequisitions(userId?: string): Promise<Requisition[]> {
     try {
       let query = this.supabase
         .from('requisitions')
@@ -754,87 +932,18 @@ export class DatabaseService {
       const { data, error } = await query;
 
       if (error) {
-        console.error('Error fetching requisitions:', error);
+        console.error('Error fetching legacy requisitions:', error);
         return [];
       }
 
       return data || [];
     } catch (error) {
-      console.error('Error in getRequisitions:', error);
+      console.error('Error in getLegacyRequisitions:', error);
       return [];
     }
   }
 
-  async getTableRequisitions(tableId: string): Promise<DashboardRequisition[]> {
-    try {
-      const { data: requisitions, error: requisitionsError } = await this.supabase
-        .from('requisitions')
-        .select('*')
-        .eq('table_id', tableId)
-        .order('created_at', { ascending: false });
-
-      if (requisitionsError) {
-        console.error('Error fetching table requisitions:', requisitionsError);
-        return [];
-      }
-
-      const requisitionItems: DashboardRequisition[] = [];
-
-      for (const req of requisitions || []) {
-        const { data: materials, error: materialsError } = await this.supabase
-          .from('requisition_materials')
-          .select('*')
-          .eq('requisition_id', req.id);
-
-        if (materialsError) {
-          console.error('Error fetching materials for requisition:', materialsError);
-          continue;
-        }
-
-        const formattedMaterials: RawMaterial[] = (materials || []).map(m => ({
-          name: m.material_name,
-          qty: m.qty_per_batch,
-          unit: m.unit,
-          type: m.type,
-          requiredQty: m.required_qty,
-          servedQty: m.served_qty,
-          remarks: m.remarks,
-          servedDate: m.served_date ? new Date(m.served_date) : undefined,
-          isUnserved: m.is_unserved
-        }));
-
-        requisitionItems.push({
-          id: req.id,
-          skuCode: req.sku_code,
-          skuName: req.sku_name,
-          category: req.category,
-          qtyNeeded: req.qty_needed,
-          supplier: req.supplier,
-          qtyPerUnit: req.qty_per_unit,
-          unit: req.unit,
-          qtyPerPack: req.qty_per_pack,
-          unit2: req.pack_unit,
-          materials: formattedMaterials,
-          status: req.status,
-          submittedBy: req.submitted_by,
-          submittedDate: req.submitted_date ? new Date(req.submitted_date) : undefined,
-          reviewedBy: req.reviewed_by,
-          reviewedDate: req.reviewed_date ? new Date(req.reviewed_date) : undefined,
-          approvedBy: req.approver,
-          approvedDate: req.approved_date ? new Date(req.approved_date) : undefined,
-          remarks: req.remarks,
-          tableId: req.table_id
-        });
-      }
-
-      return requisitionItems;
-    } catch (error) {
-      console.error('Error in getTableRequisitions:', error);
-      return [];
-    }
-  }
-
-  async getRequisitionWithMaterials(id: string): Promise<{ requisition: Requisition; materials: RequisitionMaterial[] } | null> {
+  async getLegacyRequisitionWithMaterials(id: string): Promise<{ requisition: Requisition; materials: RequisitionMaterial[] } | null> {
     try {
       const { data: requisition, error: requisitionError } = await this.supabase
         .from('requisitions')
@@ -843,7 +952,7 @@ export class DatabaseService {
         .single();
 
       if (requisitionError || !requisition) {
-        console.error('Error fetching requisition:', requisitionError);
+        console.error('Error fetching legacy requisition:', requisitionError);
         return null;
       }
 
@@ -854,18 +963,18 @@ export class DatabaseService {
         .order('material_name', { ascending: true });
 
       if (materialsError) {
-        console.error('Error fetching materials:', materialsError);
+        console.error('Error fetching legacy materials:', materialsError);
         return { requisition, materials: [] };
       }
 
       return { requisition, materials: materials || [] };
     } catch (error) {
-      console.error('Error in getRequisitionWithMaterials:', error);
+      console.error('Error in getLegacyRequisitionWithMaterials:', error);
       return null;
     }
   }
 
-  async updateRequisitionMaterial(id: string, updates: Partial<RequisitionMaterial>): Promise<{ success: boolean; error?: any }> {
+  async updateLegacyRequisitionMaterial(id: string, updates: Partial<RequisitionMaterial>): Promise<{ success: boolean; error?: any }> {
     try {
       const { error } = await this.supabase
         .from('requisition_materials')
@@ -874,12 +983,12 @@ export class DatabaseService {
 
       return { success: !error, error };
     } catch (error) {
-      console.error('Error in updateRequisitionMaterial:', error);
+      console.error('Error in updateLegacyRequisitionMaterial:', error);
       return { success: false, error };
     }
   }
 
-  async deleteRequisition(id: string): Promise<{ success: boolean; error?: any }> {
+  async deleteLegacyRequisition(id: string): Promise<{ success: boolean; error?: any }> {
     try {
       const { error: materialsError } = await this.supabase
         .from('requisition_materials')
@@ -887,7 +996,7 @@ export class DatabaseService {
         .eq('requisition_id', id);
 
       if (materialsError) {
-        console.error('Materials deletion error:', materialsError);
+        console.error('Legacy materials deletion error:', materialsError);
         return { success: false, error: materialsError };
       }
 
@@ -898,7 +1007,7 @@ export class DatabaseService {
 
       return { success: !requisitionError, error: requisitionError };
     } catch (error) {
-      console.error('Error in deleteRequisition:', error);
+      console.error('Error in deleteLegacyRequisition:', error);
       return { success: false, error };
     }
   }
@@ -1005,16 +1114,53 @@ export class DatabaseService {
 
   async deleteTable(tableId: string): Promise<{ success: boolean; error?: any }> {
     try {
-      const { error: requisitionsError } = await this.supabase
+      // Get all requisitions for this table
+      const { data: requisitions, error: getReqsError } = await this.supabase
+        .from('material_requisitions')
+        .select('id')
+        .eq('table_id', tableId);
+
+      if (getReqsError) {
+        console.error('Error getting requisitions for table:', getReqsError);
+      }
+
+      // Delete materials for each requisition
+      if (requisitions && requisitions.length > 0) {
+        const requisitionIds = requisitions.map(r => r.id);
+        for (const reqId of requisitionIds) {
+          const { error: materialsError } = await this.supabase
+            .from('material_requisition_materials')
+            .delete()
+            .eq('requisition_id', reqId);
+
+          if (materialsError) {
+            console.error('Error deleting materials for requisition:', reqId, materialsError);
+          }
+        }
+
+        // Delete requisitions
+        const { error: requisitionsError } = await this.supabase
+          .from('material_requisitions')
+          .delete()
+          .eq('table_id', tableId);
+
+        if (requisitionsError) {
+          console.error('Error deleting table requisitions:', requisitionsError);
+          return { success: false, error: requisitionsError };
+        }
+      }
+
+      // Also delete any legacy requisitions
+      const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .delete()
         .eq('table_id', tableId);
 
-      if (requisitionsError) {
-        console.error('Error deleting table requisitions:', requisitionsError);
-        return { success: false, error: requisitionsError };
+      if (legacyReqsError) {
+        console.error('Error deleting legacy table requisitions:', legacyReqsError);
       }
 
+      // Delete table
       const { error: tableError } = await this.supabase
         .from('user_tables')
         .delete()
@@ -1044,7 +1190,24 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      const { error: requisitionsError } = await this.supabase
+      // Update material requisitions
+      const { error: materialReqsError } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          status: 'submitted',
+          submitted_by: submittedBy,
+          submitted_date: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'draft');
+
+      if (materialReqsError) {
+        console.error('Error updating material requisitions status:', materialReqsError);
+      }
+
+      // Update legacy requisitions
+      const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
           status: 'submitted',
@@ -1055,8 +1218,8 @@ export class DatabaseService {
         .eq('table_id', tableId)
         .eq('status', 'draft');
 
-      if (requisitionsError) {
-        console.error('Error updating requisitions status:', requisitionsError);
+      if (legacyReqsError) {
+        console.error('Error updating legacy requisitions status:', legacyReqsError);
       }
 
       return { success: true };
@@ -1114,7 +1277,25 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      const { error: requisitionsError } = await this.supabase
+      // Update material requisitions
+      const { error: materialReqsError } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          status: 'approved',
+          approved_by: approvedBy,
+          approved_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'submitted');
+
+      if (materialReqsError) {
+        console.error('Error updating material requisitions status:', materialReqsError);
+      }
+
+      // Update legacy requisitions
+      const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
           status: 'approved',
@@ -1126,8 +1307,8 @@ export class DatabaseService {
         .eq('table_id', tableId)
         .eq('status', 'submitted');
 
-      if (requisitionsError) {
-        console.error('Error updating requisitions status:', requisitionsError);
+      if (legacyReqsError) {
+        console.error('Error updating legacy requisitions status:', legacyReqsError);
       }
 
       return { success: true };
@@ -1155,7 +1336,25 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      const { error: requisitionsError } = await this.supabase
+      // Update material requisitions
+      const { error: materialReqsError } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          status: 'rejected',
+          reviewed_by: reviewedBy,
+          reviewed_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          remarks: remarks
+        })
+        .eq('table_id', tableId)
+        .eq('status', 'submitted');
+
+      if (materialReqsError) {
+        console.error('Error updating material requisitions status:', materialReqsError);
+      }
+
+      // Update legacy requisitions
+      const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
           status: 'rejected',
@@ -1167,8 +1366,8 @@ export class DatabaseService {
         .eq('table_id', tableId)
         .eq('status', 'submitted');
 
-      if (requisitionsError) {
-        console.error('Error updating requisitions status:', requisitionsError);
+      if (legacyReqsError) {
+        console.error('Error updating legacy requisitions status:', legacyReqsError);
       }
 
       return { success: true };
@@ -1187,6 +1386,71 @@ export class DatabaseService {
       return { success: true };
     } catch (error) {
       console.error('Error in updateTableItems:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== SUPPLIER AND BRAND OPERATIONS ==========
+  async getSuppliers(): Promise<string[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('suppliers')
+        .select('name')
+        .order('name', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching suppliers:', error);
+        return [];
+      }
+
+      return data.map(s => s.name).filter(Boolean);
+    } catch (error) {
+      console.error('Error in getSuppliers:', error);
+      return [];
+    }
+  }
+
+  async getBrands(): Promise<string[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('brands')
+        .select('name')
+        .order('name', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching brands:', error);
+        return [];
+      }
+
+      return data.map(b => b.name).filter(Boolean);
+    } catch (error) {
+      console.error('Error in getBrands:', error);
+      return [];
+    }
+  }
+
+  async addSupplier(name: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('suppliers')
+        .upsert([{ name }], { onConflict: 'name' });
+
+      return { success: !error, error };
+    } catch (error) {
+      console.error('Error in addSupplier:', error);
+      return { success: false, error };
+    }
+  }
+
+  async addBrand(name: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('brands')
+        .upsert([{ name }], { onConflict: 'name' });
+
+      return { success: !error, error };
+    } catch (error) {
+      console.error('Error in addBrand:', error);
       return { success: false, error };
     }
   }

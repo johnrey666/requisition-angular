@@ -22,18 +22,6 @@
         <button class="btn-sm btn-danger" [disabled]="!selectedTableId" (click)="deleteTable()" title="Delete">
           <i class="fas fa-trash"></i>
         </button>
-        
-        @if (selectedTableId && isTableSubmissionAllowed()) {
-          @if (currentTable?.status === 'rejected') {
-            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="resubmitTable()" title="Resubmit Table">
-              <i class="fas fa-redo"></i>
-            </button>
-          } @else if (currentTable?.status === 'draft') {
-            <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="submitTableForApproval()" title="Submit Table">
-              <i class="fas fa-paper-plane"></i>
-            </button>
-          }
-        }
       </div>
     </div>
 
@@ -58,17 +46,24 @@
       </div>
     </div>
 
-    <!-- Actions (Export & Clear only) -->
+    <!-- Actions (Export, Print & Clear) -->
     <div class="control-section">
       <div class="action-buttons-compact">
+        <button class="btn-sm btn-icon" 
+                [disabled]="requisitionItems.length === 0" 
+                (click)="printTable()"
+                title="Print Table">
+          <i class="fas fa-print"></i> Print
+        </button>
+
         <div class="dropdown">
           <button class="btn-sm btn-icon" 
-                  [disabled]="requisitionItems.length === 0 || !isExportEnabled()" 
+                  [disabled]="requisitionItems.length === 0" 
                   (click)="toggleExportDropdown()"
                   title="Export">
             <i class="fas fa-download"></i> Export
           </button>
-          @if (isExportDropdownOpen && isExportEnabled()) {
+          @if (isExportDropdownOpen) {
             <div class="dropdown-menu">
               <button (click)="exportData('all')"><i class="fas fa-file-excel"></i> All Data</button>
               <button (click)="exportData('pre-mix')"><i class="fas fa-flask"></i> Pre-mix</button>
@@ -78,7 +73,7 @@
           }
         </div>
 
-        <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId || !isTableEditable()" title="Clear Table">
+        <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId" title="Clear Table">
           <i class="fas fa-trash"></i> Clear
         </button>
       </div>
@@ -86,35 +81,6 @@
   </div>
 
   <!-- Status Bar -->
-  @if (currentTable?.status === 'submitted') {
-    <div class="status-bar info">
-      <i class="fas fa-hourglass-half"></i>
-      <span>This table is submitted for approval (Submitted by {{ currentTable?.submittedBy }} on {{ currentTable?.submittedDate | date:'medium' }})</span>
-    </div>
-  }
-  @if (currentTable?.status === 'approved') {
-    <div class="status-bar success">
-      <i class="fas fa-check-circle"></i>
-      <span>This table is approved (Approved by {{ currentTable?.approvedBy }} on {{ currentTable?.approvedDate | date:'medium' }})</span>
-    </div>
-  }
-  @if (currentTable?.status === 'rejected') {
-    <div class="status-bar warning">
-      <i class="fas fa-times-circle"></i>
-      <span>This table is rejected (Rejected by {{ currentTable?.reviewedBy }} on {{ currentTable?.reviewedDate | date:'medium' }})</span>
-      @if (currentTable?.remarks) {
-        <span class="remarks">Reason: {{ currentTable?.remarks }}</span>
-      }
-    </div>
-  }
-  
-  @if (!isSubmissionAllowed && currentTable?.status === 'draft') {
-    <div class="status-bar warning">
-      <i class="fas fa-clock"></i>
-      <span>Submission is currently disabled • Next window: Tomorrow 08:00</span>
-    </div>
-  }
-  
   <div class="status-bar">
     <span class="stats">
       <i class="fas fa-table"></i> {{ currentTable?.name || 'No table selected' }}
@@ -136,60 +102,12 @@
     }
   </div>
 
-  <!-- Admin Approval Panel (Modal) -->
-  @if (showApprovalPanel && isAdmin) {
-    <div class="modal-overlay" (click)="closeApprovalPanel()">
-      <div class="modal-content" (click)="$event.stopPropagation()">
-        <div class="modal-header">
-          <h3><i class="fas fa-tasks"></i> Pending Approvals ({{ pendingApprovalsCount }})</h3>
-          <button class="modal-close" (click)="closeApprovalPanel()">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-        <div class="modal-body">
-          @if (pendingApprovals.length === 0) {
-            <div class="empty-approvals">
-              <i class="fas fa-check-circle"></i>
-              <p>No pending approvals</p>
-            </div>
-          } @else {
-            <div class="approval-list">
-              @for (table of pendingApprovals; track table.id) {
-                <div class="approval-item">
-                  <div class="approval-info">
-                    <strong>{{ table.name }}</strong>
-                    <div class="approval-details">
-                      <span>Submitted by: {{ table.submittedBy }}</span>
-                      <span>Date: {{ table.submittedDate | date:'medium' }}</span>
-                      <span>Items: {{ table.itemCount }}</span>
-                    </div>
-                  </div>
-                  <div class="approval-actions">
-                    <button class="btn-xs btn-primary" (click)="viewTableDetails(table.id)">
-                      <i class="fas fa-eye"></i> View
-                    </button>
-                    <button class="btn-xs btn-success" (click)="approveTable(table.id)">
-                      <i class="fas fa-check"></i> Approve
-                    </button>
-                    <button class="btn-xs btn-danger" (click)="rejectTable(table.id)">
-                      <i class="fas fa-times"></i> Reject
-                    </button>
-                  </div>
-                </div>
-              }
-            </div>
-          }
-        </div>
-      </div>
-    </div>
-  }
-
   <!-- Compact Table with Controls in Header -->
   <div class="table-container-compact">
     <table class="compact-table">
       <thead>
         <tr>
-          <th colspan="11" class="table-header-with-controls">
+          <th colspan="10" class="table-header-with-controls">
             <div class="table-controls-row">
               <!-- Left: Table Title -->
               <div class="table-title-section">
@@ -231,7 +149,7 @@
 
                   <input class="form-input-xs" type="text" formControlName="supplier" placeholder="Supplier" title="Supplier">
 
-                  <button class="btn-xs btn-primary" (click)="addRequisition()" [disabled]="requisitionForm.invalid || !selectedTableId || !isTableEditable()" title="Add Item">
+                  <button class="btn-xs btn-primary" (click)="addRequisition()" [disabled]="requisitionForm.invalid || !selectedTableId" title="Add Item">
                     <i class="fas fa-plus"></i> Add
                   </button>
                 </div>
@@ -268,14 +186,13 @@
           <th style="width:65px;">Qty/Unit</th>
           <th style="width:50px;">Unit</th>
           <th style="width:45px;">Mats</th>
-          <th style="width:90px;">Status</th>
-          <th style="width:70px;">Actions</th>
+          <th style="width:60px;">Actions</th>
         </tr>
       </thead>
       <tbody>
         @if (filteredItems.length === 0) {
           <tr class="empty-row">
-            <td colspan="11">
+            <td colspan="10">
               <div class="empty-state-compact">
                 <i class="fas fa-inbox"></i>
                 <p>{{ searchQuery ? 'No matching items found' : 'No requisitions added yet' }}</p>
@@ -306,32 +223,20 @@
             <td>
               <input type="number" class="qty-input-sm" min="1" max="99"
                      [value]="item.qtyNeeded"
-                     (change)="updateQty(item.id, $any($event.target).value)"
-                     [disabled]="item.status !== 'draft' || !isTableEditable()">
+                     (change)="updateQty(item.id, $any($event.target).value)">
             </td>
             <td>
               <input type="text" class="supplier-input-sm"
                      [value]="item.supplier || ''"
                      (change)="updateSupplier(item.id, $any($event.target).value)"
-                     placeholder="Supplier"
-                     [disabled]="item.status !== 'draft' || !isTableEditable()">
+                     placeholder="Supplier">
             </td>
             <td class="numeric">{{ item.qtyPerUnit || '-' }}</td>
             <td class="unit">{{ item.unit || '-' }}</td>
             <td class="numeric">{{ item.materials ? item.materials.length : 0 }}</td>
             <td>
-              <span class="status-dot" [class]="item.status" [title]="item.status | titlecase"></span>
-              <span class="status-text">{{ 
-                item.status === 'draft' ? 'Draft' : 
-                item.status === 'submitted' ? 'Submitted' : 
-                item.status === 'approved' ? 'Approved' : 
-                item.status === 'rejected' ? 'Rejected' : item.status 
-              }}</span>
-            </td>
-            <td>
               <div class="action-icons">
-                <button class="icon-btn-xs btn-delete" (click)="deleteItem(item.id)" title="Delete"
-                        [disabled]="!isTableEditable()">
+                <button class="icon-btn-xs btn-delete" (click)="deleteItem(item.id)" title="Delete">
                   <i class="fas fa-trash"></i>
                 </button>
               </div>
@@ -341,7 +246,7 @@
           <!-- Expanded Details -->
           @if (expandedRows.has(item.id)) {
             <tr class="details-row">
-              <td colspan="11">
+              <td colspan="10">
                 <div class="details-compact">
                   <div class="details-header">
                     <h5><i class="fas fa-list"></i> Materials ({{ item.materials ? item.materials.length : 0 }})</h5>
@@ -377,15 +282,7 @@
                               <input type="number" class="served-input-sm"
                                      [value]="material.servedQty || 0"
                                      min="0" [max]="material.requiredQty"
-                                     (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)"
-                                     [disabled]="!isTableEditable()">
-                            </div>
-                            <div class="detail">
-                              <label>Status:</label>
-                              <span class="material-status" 
-                                    [class]="material.servedQty && material.servedQty > 0 ? 'served' : 'pending'">
-                                {{ material.servedQty && material.servedQty > 0 ? 'Served' : 'Pending' }}
-                              </span>
+                                     (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)">
                             </div>
                           </div>
                           <div class="material-actions">
@@ -394,8 +291,7 @@
                                    placeholder="Remarks"
                                    (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)">
                             <button class="btn-xs" 
-                                    (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)"
-                                    [disabled]="!isTableEditable()">
+                                    (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)">
                               <i class="fas fa-save"></i>
                             </button>
                           </div>
