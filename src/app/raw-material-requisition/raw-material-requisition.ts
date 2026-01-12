@@ -5,7 +5,13 @@ import { CommonModule } from '@angular/common';
 import * as XLSX from 'xlsx';
 import { DatabaseService } from '../services/database.service';
 import { SupabaseService } from '../services/supabase.service';
-import { MasterData, UserTable } from '../models/database.model';
+import { 
+  MasterData, 
+  UserTable, 
+  MaterialRequisition as DBMaterialRequisition,
+  MaterialRequisitionMaterial,
+  POReceipt as DBPOReceipt 
+} from '../models/database.model';
 
 declare function saveAs(data: any, filename?: string, options?: any): void;
 
@@ -48,6 +54,8 @@ interface MaterialRequisition {
   tableId: string;
   createdAt: Date;
   updatedAt: Date;
+  dateNeeded?: Date;
+  poReceiptIds?: string[];
 }
 
 interface LocalUserTable {
@@ -65,6 +73,40 @@ interface LocalUserTable {
   itemCount: number;
   createdAt: Date;
   updatedAt: Date;
+  dateNeeded?: Date;
+  poReceipts?: POReceipt[];
+}
+
+interface POReceipt {
+  id: string;
+  tableId: string;
+  requisitionId?: string;
+  poNumber: string;
+  supplier: string;
+  amount: number;
+  receiptDate: Date;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  fileSize: number;
+  status: 'pending' | 'verified' | 'rejected';
+  verifiedBy?: string;
+  verifiedDate?: Date;
+  remarks?: string;
+  itemCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface CutOffSchedule {
+  perishable: {
+    days: number[]; // 1 = Monday, 4 = Thursday
+    time: string; // "10:00"
+  };
+  shelfStable: {
+    days: number[]; // 3 = Wednesday
+    time: string; // "14:00"
+  };
 }
 
 @Component({
@@ -76,6 +118,7 @@ interface LocalUserTable {
 })
 export class RawMaterialRequisitionComponent implements OnInit {
   @ViewChild('masterFileInput') masterFileInput!: ElementRef;
+  @ViewChild('fileInput') fileInput!: ElementRef;
 
   requisitionForm: FormGroup;
   filterForm: FormGroup;
@@ -88,6 +131,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
   skus: { name: string; code: string; category: string }[] = [];
   suppliers: string[] = [];
   brands: string[] = [];
+  poReceipts: POReceipt[] = [];
 
   uploadedFileName: string = '';
   searchQuery: string = '';
@@ -98,6 +142,11 @@ export class RawMaterialRequisitionComponent implements OnInit {
   isExportDropdownOpen: boolean = false;
   showAddMaterialModal: boolean = false;
   selectedRequisitionId: string = '';
+  showCutOffSchedule: boolean = false;
+  showPOReceiptsModal: boolean = false;
+  isUploading: boolean = false;
+  uploadProgress: number = 0;
+  isDragOver: boolean = false;
 
   sortField: string = '';
   sortAsc: boolean = true;
@@ -125,6 +174,21 @@ export class RawMaterialRequisitionComponent implements OnInit {
   snackbarActionText: string = '';
   snackbarActionCallback?: () => void;
   private snackbarTimeout: any;
+
+  // Cut-off schedule configuration
+  cutOffSchedule: CutOffSchedule = {
+    perishable: {
+      days: [1, 4], // Monday and Thursday
+      time: '10:00'
+    },
+    shelfStable: {
+      days: [3], // Wednesday
+      time: '14:00'
+    }
+  };
+  
+  cutOffAdjustmentHours: number = 0;
+  unservedCount: number = 0;
 
   requisitionTypes = [
     { value: 'perishable', label: 'Perishable (Veggies, Meat)' },
@@ -167,6 +231,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
     { value: 'can', label: 'Can' }
   ];
 
+  get minDateNeeded(): string {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  }
+
   constructor(
     private fb: FormBuilder,
     private router: Router,
@@ -180,6 +250,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       sku: ['', Validators.required],
       skuCode: [{ value: '', disabled: false }, Validators.required],
       qtyNeeded: [1, [Validators.required, Validators.min(1), Validators.max(999)]],
+      dateNeeded: [''],
       supplier: ['', Validators.required],
       brand: ['', Validators.required],
       unit: ['', Validators.required],
@@ -191,7 +262,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
       status: [''],
       type: [''],
       dateFrom: [''],
-      dateTo: ['']
+      dateTo: [''],
+      unservedOnly: [false]
     });
 
     this.materialForm = this.fb.group({
@@ -226,7 +298,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
       await this.loadTableData();
     }
 
-    // Debug form validation
     this.requisitionForm.valueChanges.subscribe(value => {
       console.log('Form values:', value);
       console.log('Form valid:', this.requisitionForm.valid);
@@ -248,7 +319,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
   }
 
   canAddRequisition(): boolean {
-    return this.requisitionForm.valid && !!this.selectedTableId && this.isTableEditable();
+    if (!this.selectedTableId) return false;
+    if (!this.isTableEditable()) return false;
+    if (this.requisitionForm.invalid) return false;
+    if (this.isPastCutOff()) return false;
+    if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) return false;
+    return true;
   }
 
   getAddButtonTooltip(): string {
@@ -260,6 +336,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
     if (!this.requisitionForm.valid) {
       return 'Please fill all required fields correctly';
+    }
+    if (this.isPastCutOff()) {
+      return 'Past cut-off schedule. Requisitions will be processed next cycle.';
+    }
+    if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) {
+      return 'No PO receipts attached. Cannot add requisitions to approved table without PO receipts.';
     }
     return 'Add requisition to table';
   }
@@ -284,6 +366,17 @@ export class RawMaterialRequisitionComponent implements OnInit {
     
     if (!this.isTableEditable()) {
       this.showSnackbarMessage(`Cannot add items to this table. Current status: ${this.currentTable?.status}`, 'error');
+      return;
+    }
+    
+    if (this.isPastCutOff()) {
+      const proceed = confirm('⚠️ Past cut-off schedule!\n\nRequisitions submitted now will be processed in the next cycle.\n\nDo you want to continue?');
+      if (!proceed) return;
+    }
+    
+    if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) {
+      this.showSnackbarMessage('Cannot add requisitions to approved table without PO receipts. Please attach PO receipts first.', 'error');
+      this.viewPOReceipts();
       return;
     }
     
@@ -381,6 +474,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       skuCode: formValue.skuCode,
       skuName: formValue.sku,
       qtyNeeded: formValue.qtyNeeded,
+      dateNeeded: formValue.dateNeeded ? new Date(formValue.dateNeeded) : undefined,
       supplier: finalSupplier,
       brand: finalBrand,
       unit: formValue.unit,
@@ -403,6 +497,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         sku_name: newItem.skuName,
         category: newItem.category,
         qty_needed: newItem.qtyNeeded,
+        date_needed: newItem.dateNeeded ? newItem.dateNeeded.toISOString() : null,
         supplier: newItem.supplier,
         brand: newItem.brand,
         unit: newItem.unit,
@@ -423,6 +518,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         await this.dbService.updateTableItemCount(this.selectedTableId, this.requisitionItems.length);
         if (this.currentTable) {
           this.currentTable.itemCount = this.requisitionItems.length;
+          this.currentTable.dateNeeded = newItem.dateNeeded;
         }
       } else {
         const index = this.requisitionItems.findIndex(item => item.id === newItem.id);
@@ -442,6 +538,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
 
     await this.saveTableData();
+    this.updateUnservedCount();
 
     this.showSnackbarMessage(`Requisition ${requisitionNumber} added successfully!`, 'success');
 
@@ -451,6 +548,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       sku: '',
       skuCode: '',
       qtyNeeded: 1,
+      dateNeeded: '',
       supplier: '',
       brand: '',
       unit: '',
@@ -598,7 +696,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       
       const requisitions = await this.dbService.getTableRequisitions(this.selectedTableId);
       
-      this.requisitionItems = requisitions.map((req: any) => {
+      this.requisitionItems = requisitions.map((req: DBMaterialRequisition & { materials?: any[] }) => {
         let mappedStatus: MaterialRequisition['status'] = 'draft';
         
         if (req.status === 'submitted' || req.status === 'approved' || req.status === 'rejected') {
@@ -624,15 +722,16 @@ export class RawMaterialRequisitionComponent implements OnInit {
         return {
           id: req.id,
           requisitionNumber: req.requisition_number || `MR-${req.id.slice(-6)}`,
-          type: req.type || (req.category?.includes('perishable') ? 'perishable' : 'shelf-stable'),
+          type: req.type as 'perishable' | 'shelf-stable' || (req.category?.includes('perishable') ? 'perishable' : 'shelf-stable'),
           category: req.category || '',
           skuCode: req.sku_code || '',
           skuName: req.sku_name || '',
           qtyNeeded: req.qty_needed || 1,
+          dateNeeded: req.date_needed ? new Date(req.date_needed) : undefined,
           supplier: req.supplier || '',
           brand: req.brand || '',
           unit: req.unit || 'kg',
-          materials: req.materials?.map((mat: any) => ({
+          materials: (req.materials || []).map((mat: any) => ({
             id: mat.id || this.generateId(),
             name: mat.material_name || '',
             type: mat.type || 'raw-material',
@@ -646,7 +745,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
             brand: mat.brand || '',
             supplier: mat.supplier || '',
             status: mat.status || 'pending'
-          })) || [],
+          })),
           status: mappedStatus,
           submittedBy: req.submitted_by,
           submittedDate: req.submitted_date ? new Date(req.submitted_date) : undefined,
@@ -657,14 +756,50 @@ export class RawMaterialRequisitionComponent implements OnInit {
           remarks: req.remarks,
           tableId: req.table_id || this.selectedTableId,
           createdAt: req.created_at ? new Date(req.created_at) : new Date(),
-          updatedAt: req.updated_at ? new Date(req.updated_at) : new Date()
+          updatedAt: req.updated_at ? new Date(req.updated_at) : new Date(),
+          poReceiptIds: req.po_receipt_ids || []
         };
       });
 
+      // Load PO receipts for this table
+      await this.loadPOReceipts();
+      this.updateUnservedCount();
       this.filterAndPaginate();
     } catch (error) {
       console.error('Error loading table data:', error);
       this.showSnackbarMessage('Failed to load table data', 'error');
+    }
+  }
+
+  async loadPOReceipts(): Promise<void> {
+    if (!this.selectedTableId) return;
+    
+    try {
+      const poReceipts = await this.dbService.getPOReceiptsByTable(this.selectedTableId);
+      
+      this.poReceipts = poReceipts.map((receipt: DBPOReceipt) => ({
+        id: receipt.id,
+        tableId: receipt.table_id,
+        requisitionId: receipt.requisition_id,
+        poNumber: receipt.po_number,
+        supplier: receipt.supplier,
+        amount: receipt.amount,
+        receiptDate: new Date(receipt.receipt_date),
+        fileName: receipt.file_name,
+        fileUrl: receipt.file_url,
+        fileType: receipt.file_type,
+        fileSize: receipt.file_size,
+        status: receipt.status as 'pending' | 'verified' | 'rejected',
+        verifiedBy: receipt.verified_by,
+        verifiedDate: receipt.verified_date ? new Date(receipt.verified_date) : undefined,
+        remarks: receipt.remarks,
+        itemCount: receipt.item_count,
+        createdAt: new Date(receipt.created_at),
+        updatedAt: new Date(receipt.updated_at)
+      }));
+    } catch (error) {
+      console.error('Error loading PO receipts:', error);
+      this.poReceipts = [];
     }
   }
 
@@ -674,6 +809,348 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   isTableSubmissionAllowed(): boolean {
     return true;
+  }
+
+  // ========== CUT-OFF SCHEDULE METHODS ==========
+  isPastCutOff(): boolean {
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const currentTime = now.getHours() * 60 + now.getMinutes(); // minutes since midnight
+    
+    // Get the selected requisition type from form
+    const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
+    const schedule = requisitionType === 'perishable' 
+      ? this.cutOffSchedule.perishable 
+      : this.cutOffSchedule.shelfStable;
+    
+    // Check if today is a cut-off day
+    const isCutOffDay = schedule.days.includes(currentDay);
+    
+    if (!isCutOffDay) {
+      // Find next cut-off day
+      const nextCutOffDay = this.findNextCutOffDay(requisitionType);
+      return nextCutOffDay < currentDay;
+    }
+    
+    // Parse cut-off time
+    const [hours, minutes] = schedule.time.split(':').map(Number);
+    const cutOffTime = hours * 60 + minutes + this.cutOffAdjustmentHours * 60;
+    
+    return currentTime > cutOffTime;
+  }
+
+  private findNextCutOffDay(requisitionType: string): number {
+    const now = new Date();
+    const currentDay = now.getDay();
+    const schedule = requisitionType === 'perishable' 
+      ? this.cutOffSchedule.perishable 
+      : this.cutOffSchedule.shelfStable;
+    
+    // Find next cut-off day
+    const sortedDays = [...schedule.days].sort((a, b) => a - b);
+    const nextDay = sortedDays.find(day => day > currentDay) || sortedDays[0];
+    
+    return nextDay;
+  }
+
+  getNextCutOffDate(): Date {
+    const now = new Date();
+    const currentDay = now.getDay();
+    const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
+    const schedule = requisitionType === 'perishable' 
+      ? this.cutOffSchedule.perishable 
+      : this.cutOffSchedule.shelfStable;
+    
+    const nextDay = this.findNextCutOffDay(requisitionType);
+    
+    // Calculate days until next cut-off
+    let daysUntilNext = nextDay - currentDay;
+    if (daysUntilNext <= 0) {
+      daysUntilNext += 7;
+    }
+    
+    const nextDate = new Date(now);
+    nextDate.setDate(now.getDate() + daysUntilNext);
+    return nextDate;
+  }
+
+  getNextCutOffTime(): string {
+    const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
+    const schedule = requisitionType === 'perishable' 
+      ? this.cutOffSchedule.perishable 
+      : this.cutOffSchedule.shelfStable;
+    
+    return schedule.time;
+  }
+
+  viewCutOffSchedule(): void {
+    this.showCutOffSchedule = true;
+  }
+
+  closeCutOffSchedule(): void {
+    this.showCutOffSchedule = false;
+  }
+
+  updateCutOffSchedule(): void {
+    // In a real app, you would save this to the database
+    this.showSnackbarMessage('Cut-off schedule updated successfully', 'success');
+    this.closeCutOffSchedule();
+  }
+
+  // ========== PO RECEIPTS METHODS ==========
+  viewPOReceipts(): void {
+    if (!this.selectedTableId) {
+      this.showSnackbarMessage('Please select a table first', 'error');
+      return;
+    }
+    this.showPOReceiptsModal = true;
+  }
+
+  closePOReceiptsModal(): void {
+    this.showPOReceiptsModal = false;
+    this.isDragOver = false;
+  }
+
+  hasPOReceipts(): boolean {
+    return this.poReceipts.length > 0;
+  }
+
+  getPOReceiptsForRequisition(requisitionId: string): POReceipt[] {
+    return this.poReceipts.filter(receipt => 
+      receipt.requisitionId === requisitionId || 
+      !receipt.requisitionId // General receipts for the table
+    );
+  }
+
+  async uploadPOReceipt(): Promise<void> {
+    this.fileInput.nativeElement.click();
+  }
+
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = true;
+  }
+
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = false;
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragOver = false;
+    
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) {
+      this.handleFiles(files);
+    }
+  }
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.handleFiles(input.files);
+    }
+  }
+
+  async handleFiles(files: FileList): Promise<void> {
+    if (!this.selectedTableId) {
+      this.showSnackbarMessage('Please select a table first', 'error');
+      return;
+    }
+
+    this.isUploading = true;
+    this.uploadProgress = 0;
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Validate file
+        if (!this.validateFile(file)) {
+          continue;
+        }
+        
+        // Simulate upload progress
+        const progressInterval = setInterval(() => {
+          this.uploadProgress += 10;
+          if (this.uploadProgress >= 100) {
+            clearInterval(progressInterval);
+          }
+          this.cdRef.detectChanges();
+        }, 200);
+        
+        // In a real app, upload to Supabase storage
+        const fileName = `po_receipt_${Date.now()}_${file.name}`;
+        const fileType = file.type;
+        const fileSize = file.size;
+        
+        // Create PO receipt record
+        const poReceiptData: Partial<DBPOReceipt> = {
+          table_id: this.selectedTableId,
+          po_number: `PO-${Date.now().toString().slice(-6)}`,
+          supplier: 'Unknown Supplier', // In real app, extract from file or form
+          amount: 0, // In real app, extract from file
+          receipt_date: new Date().toISOString(),
+          file_name: fileName,
+          file_url: '', // URL after upload
+          file_type: fileType,
+          file_size: fileSize,
+          status: 'pending' as const,
+          item_count: 0,
+          remarks: ''
+        };
+        
+        // Save to database using the DatabaseService
+        const result = await this.dbService.createPOReceipt(poReceiptData);
+        
+        if (result.success && result.receiptId) {
+          const newReceipt: POReceipt = {
+            id: result.receiptId,
+            tableId: this.selectedTableId,
+            poNumber: poReceiptData.po_number || '',
+            supplier: poReceiptData.supplier || '',
+            amount: poReceiptData.amount || 0,
+            receiptDate: new Date(poReceiptData.receipt_date || new Date()),
+            fileName: poReceiptData.file_name || '',
+            fileUrl: poReceiptData.file_url || '',
+            fileType: poReceiptData.file_type || '',
+            fileSize: poReceiptData.file_size || 0,
+            status: 'pending',
+            itemCount: poReceiptData.item_count || 0,
+            remarks: poReceiptData.remarks || '',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          this.poReceipts.unshift(newReceipt);
+        } else {
+          throw new Error(result.error?.message || 'Failed to create PO receipt');
+        }
+        
+        clearInterval(progressInterval);
+        this.uploadProgress = 100;
+      }
+      
+      this.showSnackbarMessage('PO receipts uploaded successfully', 'success');
+      
+      // Reset after delay
+      setTimeout(() => {
+        this.isUploading = false;
+        this.uploadProgress = 0;
+        this.cdRef.detectChanges();
+      }, 1000);
+      
+    } catch (error: any) {
+      console.error('Error uploading PO receipts:', error);
+      this.showSnackbarMessage('Error uploading PO receipts: ' + error.message, 'error');
+      this.isUploading = false;
+      this.uploadProgress = 0;
+    }
+  }
+
+  private validateFile(file: File): boolean {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    
+    if (file.size > maxSize) {
+      this.showSnackbarMessage(`File ${file.name} exceeds 10MB limit`, 'error');
+      return false;
+    }
+    
+    if (!allowedTypes.includes(file.type)) {
+      this.showSnackbarMessage(`File ${file.name} must be PDF, JPG, or PNG`, 'error');
+      return false;
+    }
+    
+    return true;
+  }
+
+  viewReceiptFile(receipt: POReceipt): void {
+    // In a real app, open the file in a new tab or modal
+    if (receipt.fileUrl) {
+      window.open(receipt.fileUrl, '_blank');
+    } else {
+      this.showSnackbarMessage('File URL not available', 'error');
+    }
+  }
+
+  downloadReceipt(receipt: POReceipt): void {
+    // In a real app, trigger download
+    if (receipt.fileUrl) {
+      const link = document.createElement('a');
+      link.href = receipt.fileUrl;
+      link.download = receipt.fileName;
+      link.click();
+    } else {
+      this.showSnackbarMessage('File URL not available', 'error');
+    }
+  }
+
+  async verifyReceipt(receiptId: string): Promise<void> {
+    try {
+      const adminName = this.currentUser.full_name || this.currentUser.username;
+      const result = await this.dbService.verifyPOReceipt(receiptId, adminName);
+      
+      if (result.success) {
+        // Update local state
+        const receipt = this.poReceipts.find(r => r.id === receiptId);
+        if (receipt) {
+          receipt.status = 'verified';
+          receipt.verifiedBy = adminName;
+          receipt.verifiedDate = new Date();
+        }
+        
+        this.showSnackbarMessage('PO receipt verified successfully', 'success');
+        this.cdRef.detectChanges();
+      } else {
+        throw new Error(result.error?.message || 'Failed to verify receipt');
+      }
+    } catch (error: any) {
+      console.error('Error verifying receipt:', error);
+      this.showSnackbarMessage('Error verifying receipt: ' + error.message, 'error');
+    }
+  }
+
+  async deleteReceipt(receiptId: string): Promise<void> {
+    if (confirm('Are you sure you want to delete this PO receipt?')) {
+      try {
+        const result = await this.dbService.deletePOReceipt(receiptId);
+        
+        if (result.success) {
+          this.poReceipts = this.poReceipts.filter(r => r.id !== receiptId);
+          this.showSnackbarMessage('PO receipt deleted successfully', 'success');
+          this.cdRef.detectChanges();
+        } else {
+          throw new Error(result.error?.message || 'Failed to delete receipt');
+        }
+      } catch (error: any) {
+        console.error('Error deleting receipt:', error);
+        this.showSnackbarMessage('Error deleting receipt: ' + error.message, 'error');
+      }
+    }
+  }
+
+  // ========== UNSERVED MATERIALS METHODS ==========
+  hasUnservedMaterials(requisition: MaterialRequisition): boolean {
+    return requisition.materials.some(material => material.isUnserved);
+  }
+
+  updateUnservedCount(): void {
+    this.unservedCount = this.requisitionItems.reduce((count, requisition) => {
+      return count + requisition.materials.filter(m => m.isUnserved).length;
+    }, 0);
+  }
+
+  isDatePastDue(date: Date): boolean {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(date);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
   }
 
   // ========== HELPER METHODS ==========
@@ -830,13 +1307,15 @@ export class RawMaterialRequisitionComponent implements OnInit {
       remarks: formValue.remarks,
       brand: formValue.brand,
       supplier: formValue.supplier,
-      status: 'pending'
+      status: 'pending',
+      isUnserved: true
     };
 
     requisition.materials.push(newMaterial);
     requisition.updatedAt = new Date();
 
     this.updateRequisitionStatus(requisition);
+    this.updateUnservedCount();
 
     this.saveTableData();
     this.closeAddMaterialModal();
@@ -865,6 +1344,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
 
     this.updateRequisitionStatus(requisition);
+    this.updateUnservedCount();
 
     requisition.updatedAt = new Date();
     this.saveTableData();
@@ -906,6 +1386,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     requisition.materials.splice(materialIndex, 1);
     
     this.updateRequisitionStatus(requisition);
+    this.updateUnservedCount();
     
     requisition.updatedAt = new Date();
     this.saveTableData();
@@ -929,6 +1410,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         await this.dbService.deleteRequisition(requisitionId);
         this.requisitionItems.splice(index, 1);
         await this.saveTableData();
+        this.updateUnservedCount();
         this.filterAndPaginate();
         this.showSnackbarMessage(`Requisition ${requisition.requisitionNumber} deleted`, 'success');
       } catch (error) {
@@ -965,6 +1447,9 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (filterValue.dateTo) {
       const dateTo = new Date(filterValue.dateTo);
       filtered = filtered.filter(item => new Date(item.createdAt) <= dateTo);
+    }
+    if (filterValue.unservedOnly) {
+      filtered = filtered.filter(item => this.hasUnservedMaterials(item));
     }
 
     if (this.sortField) {
@@ -1030,8 +1515,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
       ['Table', this.currentTable?.name || 'No table'],
       ['Export Type', type === 'all' ? 'All Requisitions' : type === 'perishable' ? 'Perishable Only' : 'Shelf-Stable Only'],
       [''],
-      ['Req #', 'Type', 'SKU Code', 'SKU Name', 'Category', 'Qty Needed', 'Unit', 'Supplier', 'Brand', 'Status',
-      'Material Name', 'Material Type', 'Quantity', 'Unit', 'Required Qty', 'Served Qty',
+      ['Req #', 'Type', 'Date Needed', 'SKU Code', 'SKU Name', 'Category', 'Qty Needed', 'Unit', 'Supplier', 'Brand', 'Status',
+      'Material Name', 'Material Type', 'Quantity', 'Unit', 'Required Qty', 'Served Qty', 'Unserved',
       'Material Brand', 'Material Supplier', 'Remarks', 'Served Date', 'Created Date']
     ];
 
@@ -1042,6 +1527,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         data.push([
           requisition.requisitionNumber,
           requisition.type,
+          requisition.dateNeeded ? requisition.dateNeeded.toLocaleDateString() : 'ASAP',
           requisition.skuCode,
           requisition.skuName,
           requisition.category,
@@ -1059,6 +1545,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         const row: string[] = [
           index === 0 ? requisition.requisitionNumber : '',
           index === 0 ? requisition.type : '',
+          index === 0 ? (requisition.dateNeeded ? requisition.dateNeeded.toLocaleDateString() : 'ASAP') : '',
           index === 0 ? requisition.skuCode : '',
           index === 0 ? requisition.skuName : '',
           index === 0 ? requisition.category : '',
@@ -1073,6 +1560,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
           material.unit,
           material.requiredQty.toString(),
           (material.servedQty || 0).toString(),
+          material.isUnserved ? 'Yes' : 'No',
           material.brand || '',
           material.supplier || '',
           material.remarks || '',
@@ -1112,6 +1600,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
         this.requisitionItems = [];
         this.searchQuery = '';
         this.currentPage = 1;
+        this.unservedCount = 0;
         
         await this.saveTableData();
         
@@ -1210,7 +1699,9 @@ export class RawMaterialRequisitionComponent implements OnInit {
       remarks: dbTable.remarks,
       itemCount: dbTable.item_count,
       createdAt: new Date(dbTable.created_at),
-      updatedAt: new Date(dbTable.updated_at)
+      updatedAt: new Date(dbTable.updated_at),
+      dateNeeded: dbTable.date_needed ? new Date(dbTable.date_needed) : undefined,
+      poReceipts: [] // Initialize empty array
     };
   }
 
@@ -1254,6 +1745,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
         this.selectedTableId = '';
         this.currentTable = null;
         this.requisitionItems = [];
+        this.poReceipts = [];
+        this.unservedCount = 0;
         this.filterAndPaginate();
         
         localStorage.removeItem('lastSelectedTable');
@@ -1267,6 +1760,17 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   async submitTableForApproval(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
+    
+    // Additional validation before submission
+    if (this.unservedCount > 0) {
+      const proceed = confirm(`⚠️ There are ${this.unservedCount} unserved materials.\n\nSubmit table anyway?`);
+      if (!proceed) return;
+    }
+    
+    if (this.isPastCutOff()) {
+      const proceed = confirm('⚠️ Past cut-off schedule!\n\nTable will be processed in the next cycle.\n\nSubmit anyway?');
+      if (!proceed) return;
+    }
     
     if (confirm('Submit Table\n\nSubmit this entire table for approval? All requisitions will be submitted.')) {
       try {
@@ -1301,7 +1805,19 @@ export class RawMaterialRequisitionComponent implements OnInit {
   canSubmitTable(): boolean {
     if (!this.currentTable) return false;
     if (this.currentTable.status === 'approved') return false;
-    return this.requisitionItems.length > 0;
+    if (this.requisitionItems.length === 0) return false;
+    
+    // Check if all required fields are filled
+    const hasIncompleteRequisitions = this.requisitionItems.some(item => {
+      return !item.skuCode || !item.supplier || !item.brand || !item.unit;
+    });
+    
+    if (hasIncompleteRequisitions) {
+      this.showSnackbarMessage('Cannot submit: Some requisitions have missing required fields', 'error');
+      return false;
+    }
+    
+    return true;
   }
 
   async loadPendingApprovals(): Promise<void> {
@@ -1433,6 +1949,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
     if (!(event.target as HTMLElement).closest('.modal-content')) {
       this.showAddMaterialModal = false;
+      this.showCutOffSchedule = false;
+      this.showPOReceiptsModal = false;
     }
   }
 }

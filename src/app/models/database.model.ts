@@ -47,6 +47,9 @@ export interface Requisition {
   table_id?: string;
   created_at: string;
   updated_at: string;
+  date_needed?: string; // Added
+  brand?: string; // Added
+  po_receipt_ids?: string[]; // Added
 }
 
 export interface RequisitionMaterial {
@@ -62,6 +65,9 @@ export interface RequisitionMaterial {
   served_date?: string;
   is_unserved?: boolean;
   created_at: string;
+  brand?: string; // Added
+  supplier?: string; // Added
+  status?: 'pending' | 'partially-served' | 'fully-served'; // Added
 }
 
 export interface UserTable {
@@ -79,6 +85,28 @@ export interface UserTable {
   item_count: number;
   created_at: string;
   updated_at: string;
+  date_needed?: string; // Added
+}
+
+export interface POReceipt {
+  id: string;
+  table_id: string;
+  requisition_id?: string;
+  po_number: string;
+  supplier: string;
+  amount: number;
+  receipt_date: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  status: 'pending' | 'verified' | 'rejected';
+  verified_by?: string;
+  verified_date?: string;
+  remarks?: string;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Raw material interface for dashboard
@@ -92,6 +120,9 @@ export interface RawMaterial {
   remarks?: string;
   servedDate?: Date;
   isUnserved?: boolean;
+  brand?: string;
+  supplier?: string;
+  status?: 'pending' | 'partially-served' | 'fully-served';
 }
 
 // Add interface for dashboard items
@@ -116,4 +147,54 @@ export interface DashboardRequisition {
   approvedDate?: Date;
   remarks?: string;
   tableId?: string;
+  dateNeeded?: Date; // Added
+  brand?: string; // Added
+}
+
+// New material requisition interface
+export interface MaterialRequisition {
+  id: string;
+  requisition_number: string;
+  type: 'perishable' | 'shelf-stable';
+  sku_code: string;
+  sku_name: string;
+  category: string;
+  qty_needed: number;
+  supplier: string;
+  brand: string;
+  unit: string;
+  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'partially-served' | 'fully-served';
+  submitted_by?: string;
+  submitted_date?: string;
+  approved_by?: string;
+  approved_date?: string;
+  reviewed_by?: string;
+  reviewed_date?: string;
+  remarks?: string;
+  user_id: string;
+  table_id: string;
+  created_at: string;
+  updated_at: string;
+  date_needed?: string; // Added
+  po_receipt_ids?: string[]; // Added
+}
+
+// New material requisition materials interface
+export interface MaterialRequisitionMaterial {
+  id: string;
+  requisition_id: string;
+  material_name: string;
+  type: string;
+  qty_per_batch: number;
+  unit: string;
+  required_qty: number;
+  served_qty?: number;
+  remarks?: string;
+  served_date?: string;
+  is_unserved?: boolean;
+  brand?: string;
+  supplier?: string;
+  status: 'pending' | 'partially-served' | 'fully-served';
+  created_at: string;
+  updated_at: string;
 }

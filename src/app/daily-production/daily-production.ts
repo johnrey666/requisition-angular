@@ -1,59 +1,26 @@
 import { Component, OnInit, ElementRef, ViewChild, HostListener, ChangeDetectorRef } from '@angular/core';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule, FormsModule } from '@angular/forms';
-import { Router, RouterModule } from '@angular/router';
+import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import * as XLSX from 'xlsx';
 import { DatabaseService } from '../services/database.service';
-import { SupabaseService } from '../services/supabase.service';
-import { MasterData, DashboardRequisition, UserTable } from '../models/database.model';
-
-declare function saveAs(data: any, filename?: string, options?: any): void;
-
-interface RawMaterial {
-  name: string;
-  qty: number;
-  unit: string;
-  type: string;
-  requiredQty: number;
-  servedQty?: number;
-  remarks?: string;
-  servedDate?: Date;
-  isUnserved?: boolean;
-}
-
-interface LocalUserTable {
-  id: string;
-  name: string;
-  userId: string;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected';
-  submittedBy?: string;
-  submittedDate?: Date;
-  reviewedBy?: string;
-  reviewedDate?: Date;
-  approvedBy?: string;
-  approvedDate?: Date;
-  remarks?: string;
-  itemCount: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { User } from '../models/database.model';
 
 @Component({
   selector: 'app-daily-production',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, FormsModule, RouterModule],
+  imports: [CommonModule, ReactiveFormsModule, FormsModule],
   templateUrl: './daily-production.html',
   styleUrls: ['./daily-production.css']
 })
 export class DailyProductionComponent implements OnInit {
   @ViewChild('masterFileInput') masterFileInput!: ElementRef;
-  @ViewChild('skuDropdown') skuDropdown!: ElementRef;
 
   requisitionForm: FormGroup;
 
-  masterData: MasterData[] = [];
-  requisitionItems: DashboardRequisition[] = [];
-  filteredItems: DashboardRequisition[] = [];
+  masterData: any[] = [];
+  requisitionItems: any[] = [];
+  filteredItems: any[] = [];
   categories: string[] = [];
   skus: { name: string; code: string }[] = [];
 
@@ -63,13 +30,10 @@ export class DailyProductionComponent implements OnInit {
   itemsPerPage: number = 8;
   totalPages: number = 1;
   expandedRows: Set<string> = new Set();
-  darkMode: boolean = false;
   isExportDropdownOpen: boolean = false;
 
   sortField: string = '';
   sortAsc: boolean = true;
-
-  currentUser: any;
 
   typeMapping = {
     'meat-veg': ['raw', 'meat', 'chicken', 'pork', 'beef', 'fish', 'veggies', 'vegetables', 'vegetable', 'veg'],
@@ -77,26 +41,25 @@ export class DailyProductionComponent implements OnInit {
     'packaging': ['packaging']
   };
 
-  filteredMaterials: Map<string, RawMaterial[]> = new Map();
+  filteredMaterials: Map<string, any[]> = new Map();
 
-  userTables: LocalUserTable[] = [];
+  userTables: any[] = [];
   selectedTableId: string = '';
-  currentTable: LocalUserTable | null = null;
+  currentTable: any = null;
 
   showSnackbar: boolean = false;
   snackbarMessage: string = '';
   snackbarType: 'success' | 'error' | 'info' | 'warning' = 'info';
   snackbarDuration: number = 4000;
-  snackbarActionText: string = '';
-  snackbarActionCallback?: () => void;
   private snackbarTimeout: any;
+
+  private currentUser: User | null = null;
 
   constructor(
     private fb: FormBuilder,
     private router: Router,
-    private dbService: DatabaseService,
-    private supabaseService: SupabaseService,
-    private cdRef: ChangeDetectorRef
+    private cdRef: ChangeDetectorRef,
+    private dbService: DatabaseService
   ) {
     this.requisitionForm = this.fb.group({
       category: ['', Validators.required],
@@ -108,48 +71,47 @@ export class DailyProductionComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
-    const savedUser = localStorage.getItem('currentUser');
-    this.currentUser = savedUser ? JSON.parse(savedUser) : null;
-
-    console.log('Current User:', this.currentUser);
-
+    // Get current user first
+    await this.initializeUser();
+    
     if (!this.currentUser) {
       this.router.navigate(['/login']);
       return;
     }
 
+    // Load master data from localStorage (user-specific)
+    await this.loadFromLocalStorage();
+    
+    // ALSO LOAD MASTER DATA FROM DATABASE
     await this.loadMasterDataFromDatabase();
+    
+    // Load user tables from database
     await this.loadUserTables();
     
-    const lastTableId = localStorage.getItem('lastSelectedTable');
-    if (lastTableId) {
-      this.selectedTableId = lastTableId;
-      await this.loadTableData();
-    }
-
+    // Initialize UI
+    this.filterAndPaginate();
+    
     setTimeout(() => {
       this.cdRef.detectChanges();
     }, 0);
   }
 
-  private async loadMasterDataFromDatabase(): Promise<void> {
+  private async initializeUser(): Promise<void> {
     try {
-      this.masterData = await this.dbService.getMasterData();
-      console.log('Master data loaded:', this.masterData.length, 'records');
-      
-      if (this.masterData.length > 0) {
-        this.populateCategories();
-        this.cdRef.detectChanges();
+      this.currentUser = await this.dbService.getCurrentUser();
+      if (!this.currentUser) {
+        console.error('No authenticated user found');
+        this.showSnackbarMessage('Please log in to continue', 'error');
       }
     } catch (error) {
-      console.error('Error loading master data from database:', error);
-      this.showSnackbarMessage('Error loading master data', 'error');
+      console.error('Error initializing user:', error);
+      this.showSnackbarMessage('Authentication error', 'error');
     }
   }
 
   @HostListener('document:click', ['$event'])
-  clickOutside(event: Event) {
-    if (!(event.target as HTMLElement).closest('.export-dropdown')) {
+  clickOutside(event: Event): void {
+    if (!(event.target as HTMLElement).closest('.dropdown')) {
       this.isExportDropdownOpen = false;
     }
   }
@@ -174,11 +136,6 @@ export class DailyProductionComponent implements OnInit {
 
         const headerRow = rows[0].map((h: any) => h.toString().trim().toLowerCase());
         const col = this.mapColumns(headerRow);
-
-        if (col.skuCode === -1 || col.skuName === -1 || col.raw === -1 || col.qtyBatch === -1 || col.unit4 === -1) {
-          this.showSnackbarMessage('Invalid header format. Required columns missing.', 'error');
-          return;
-        }
 
         let currentSku = { code: '', name: '', category: '', quantity_per_unit: '', unit: '', quantity_per_pack: '', pack_unit: '' };
         const formattedData = [];
@@ -230,15 +187,17 @@ export class DailyProductionComponent implements OnInit {
           return;
         }
 
-        const result = await this.dbService.uploadMasterData(validData);
-
-        if (result.success) {
-          this.uploadedFileName = file.name;
-          this.showSnackbarMessage(`Master file uploaded successfully! (${result.count} items)`, 'success');
-          await this.loadMasterDataFromDatabase();
-        } else {
-          this.showSnackbarMessage(`Upload failed: ${result.error?.message || 'Unknown error'}`, 'error');
-        }
+        // Save to database as well
+        await this.uploadMasterDataToDatabase(validData);
+        
+        // Update local master data
+        this.masterData = [...this.masterData, ...validData];
+        this.uploadedFileName = file.name;
+        
+        await this.saveToLocalStorage();
+        this.populateCategories();
+        
+        this.showSnackbarMessage(`Master file loaded! (${validData.length} items)`, 'success');
 
       } catch (error: any) {
         this.showSnackbarMessage(`Upload failed: ${error.message}`, 'error');
@@ -252,50 +211,85 @@ export class DailyProductionComponent implements OnInit {
     reader.readAsArrayBuffer(file);
   }
 
+  private async uploadMasterDataToDatabase(data: any[]): Promise<void> {
+    try {
+      const result = await this.dbService.uploadMasterData(data);
+      if (!result.success) {
+        console.error('Failed to upload master data to database:', result.error);
+        this.showSnackbarMessage('Failed to save master data to database', 'warning');
+      }
+    } catch (error) {
+      console.error('Error uploading master data to database:', error);
+    }
+  }
+
+  private async loadMasterDataFromDatabase(): Promise<void> {
+    try {
+      const dbMasterData = await this.dbService.getMasterData();
+      
+      if (dbMasterData && dbMasterData.length > 0) {
+        // Convert database format to our local format
+        const convertedData = dbMasterData.map(item => ({
+          'CATEGORY': item.category,
+          'SKU CODE': item.sku_code,
+          'SKU': item.sku_name,
+          'QUANTITY PER UNIT': item.quantity_per_unit,
+          'UNIT': item.unit,
+          'QUANTITY PER PACK': item.quantity_per_pack,
+          'UNIT2': item.pack_unit,
+          'RAW MATERIAL': item.raw_material,
+          'QUANTITY/BATCH': item.quantity_per_batch,
+          'UNIT4': item.batch_unit,
+          'TYPE': item.type
+        }));
+        
+        // Merge with existing master data (avoid duplicates)
+        const existingKeys = new Set(this.masterData.map(item => 
+          `${item['SKU CODE']}|${item['RAW MATERIAL']}`
+        ));
+        
+        const newItems = convertedData.filter(item => {
+          const key = `${item['SKU CODE']}|${item['RAW MATERIAL']}`;
+          return !existingKeys.has(key);
+        });
+        
+        if (newItems.length > 0) {
+          this.masterData = [...this.masterData, ...newItems];
+          this.populateCategories();
+          this.showSnackbarMessage(`Loaded ${newItems.length} items from database`, 'info');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading master data from database:', error);
+    }
+  }
+
   private mapColumns(headerRow: string[]): any {
     const headers = headerRow.map(h => h.toLowerCase());
 
-    const category = headers.findIndex(h => h === 'category');
-    const skuCode = headers.findIndex(h => h === 'sku code');
-    const skuName = headers.findIndex(h => h === 'sku');
-    const qtyPerUnit = headers.findIndex(h => h === 'quantity per unit');
-    const unitPositions = headers.reduce((acc: number[], h, i) => (h === 'unit' ? [...acc, i] : acc), []);
-    let unit = -1;
-    if (unitPositions.length > 0) {
-      unit = unitPositions.find(pos => headers[pos + 1] !== '2' && headers[pos + 1] !== '3' && headers[pos + 1] !== '4') ?? unitPositions[0];
-    }
-    const qtyPerPack = headers.findIndex(h => h === 'quantity per pack');
-    const unit2 = headers.findIndex(h => h === 'unit2');
-    const raw = headers.findIndex(h => h === 'raw material');
-    const qtyBatch = headers.findIndex(h => h === 'quantity/batch');
-    const unit4 = headers.findIndex(h => h === 'unit4');
-    const type = headers.findIndex(h => h === 'type');
-
     return {
-      category,
-      skuCode,
-      skuName,
-      qtyPerUnit,
-      unit,
-      qtyPerPack,
-      unit2,
-      raw,
-      qtyBatch,
-      unit4,
-      type
+      category: headers.findIndex(h => h === 'category'),
+      skuCode: headers.findIndex(h => h === 'sku code'),
+      skuName: headers.findIndex(h => h === 'sku'),
+      qtyPerUnit: headers.findIndex(h => h === 'quantity per unit'),
+      unit: headers.findIndex(h => h === 'unit'),
+      qtyPerPack: headers.findIndex(h => h === 'quantity per pack'),
+      unit2: headers.findIndex(h => h === 'unit2'),
+      raw: headers.findIndex(h => h === 'raw material'),
+      qtyBatch: headers.findIndex(h => h === 'quantity/batch'),
+      unit4: headers.findIndex(h => h === 'unit4'),
+      type: headers.findIndex(h => h === 'type')
     };
   }
 
   populateCategories(): void {
-    console.log('Populating categories from master data');
-    
     const categoriesWithValues = this.masterData
-      .map(r => r.category)
+      .map(r => r['CATEGORY'])
       .filter(category => category && typeof category === 'string' && category.trim())
       .map(category => category as string);
 
     const hasUncategorizedSkus = this.masterData.some(r => 
-      !r.category || r.category.trim() === ''
+      !r['CATEGORY'] || r['CATEGORY'].trim() === ''
     );
 
     this.categories = [...new Set(categoriesWithValues)].sort();
@@ -304,34 +298,28 @@ export class DailyProductionComponent implements OnInit {
       this.categories.push('Uncategorized');
     }
     
-    console.log('Categories available:', this.categories);
-    
     this.cdRef.detectChanges();
   }
 
   onCategoryChange(): void {
     const category = this.requisitionForm.get('category')?.value;
-    console.log('Category selected:', category);
 
     this.skus = [];
     this.requisitionForm.get('sku')?.setValue('');
     this.requisitionForm.get('skuCode')?.setValue('');
 
-    if (!category) {
-      console.log('No category selected');
-      return;
-    }
+    if (!category) return;
 
     const uniqueSkusMap = new Map<string, { name: string; code: string }>();
     
     this.masterData.forEach(item => {
       const matchesCategory = category === 'Uncategorized' 
-        ? (!item.category || item.category.trim() === '')
-        : item.category === category;
+        ? (!item['CATEGORY'] || item['CATEGORY'].trim() === '')
+        : item['CATEGORY'] === category;
       
-      if (matchesCategory && item.sku_name) {
-        const code = (item.sku_code || '').toString().trim();
-        const name = item.sku_name.trim();
+      if (matchesCategory && item['SKU']) {
+        const code = (item['SKU CODE'] || '').toString().trim();
+        const name = item['SKU'].trim();
         if (name && !uniqueSkusMap.has(name)) {
           uniqueSkusMap.set(name, { name, code });
         }
@@ -341,47 +329,29 @@ export class DailyProductionComponent implements OnInit {
     this.skus = Array.from(uniqueSkusMap.values())
       .sort((a, b) => a.name.localeCompare(b.name));
     
-    console.log(`SKUs for category "${category}":`, this.skus.length, this.skus);
-    
     this.cdRef.detectChanges();
   }
 
   onSkuChange(): void {
     const skuName = this.requisitionForm.get('sku')?.value;
-    console.log('SKU selected from dropdown:', skuName);
     
     const selected = this.skus.find(s => s.name === skuName);
     if (selected) {
       this.requisitionForm.get('skuCode')?.enable();
       this.requisitionForm.get('skuCode')?.setValue(selected.code);
       this.requisitionForm.get('skuCode')?.disable();
-      this.updateSKUTitle();
     } else {
       this.requisitionForm.get('skuCode')?.enable();
       this.requisitionForm.get('skuCode')?.setValue('');
       this.requisitionForm.get('skuCode')?.disable();
-      this.updateSKUTitle();
     }
   }
 
-  updateSKUTitle(): void {
-    setTimeout(() => {
-      const skuSelect = document.querySelector('.quick-add-form select[formControlName="sku"]') as HTMLSelectElement;
-      if (skuSelect) {
-        const selectedOption = skuSelect.options[skuSelect.selectedIndex];
-        const selectedText = selectedOption?.text || '';
-        skuSelect.title = selectedText || 'Select SKU';
-      }
-      const skuCodeInput = document.querySelector('.quick-add-form input[formControlName="skuCode"]') as HTMLInputElement;
-      if (skuCodeInput) {
-        skuCodeInput.title = skuCodeInput.value || 'SKU Code';
-      }
-    }, 0);
-  }
-
-  // FINAL FIXED addRequisition – items show instantly and persist on reload
   async addRequisition(): Promise<void> {
-    console.log('=== DEBUG: addRequisition called ===');
+    if (!this.currentUser) {
+      this.showSnackbarMessage('Please log in to add requisitions', 'error');
+      return;
+    }
     
     if (!this.selectedTableId) {
       this.showSnackbarMessage('Please select or create a table first', 'error');
@@ -394,52 +364,38 @@ export class DailyProductionComponent implements OnInit {
     }
 
     const formValue = this.requisitionForm.value;
+    const skuCodeToUse = formValue.skuCode;
 
-    const formSkuCodeControl = this.requisitionForm.get('skuCode');
-    const actualSkuCode = formSkuCodeControl?.value || formValue.skuCode;
-
-    let skuCodeToUse = actualSkuCode;
-    if (!skuCodeToUse && formValue.sku) {
-      const selectedSku = this.skus.find(s => s.name === formValue.sku);
-      if (selectedSku) skuCodeToUse = selectedSku.code;
-    }
-
-    if (!skuCodeToUse && !formValue.sku) {
-      this.showSnackbarMessage('SKU information is missing. Please reselect the SKU.', 'error');
-      return;
-    }
-
-    let skuRecords: MasterData[] = [];
+    let skuRecords: any[] = [];
     
     if (skuCodeToUse) {
-      skuRecords = this.masterData.filter(r => (r.sku_code || '').toString().trim() === skuCodeToUse.toString().trim());
+      skuRecords = this.masterData.filter(r => 
+        (r['SKU CODE'] || '').toString().trim() === skuCodeToUse.toString().trim()
+      );
     }
 
     if (skuRecords.length === 0 && formValue.sku) {
       skuRecords = this.masterData.filter(r => 
-        (r.sku_name || '').toString().trim().toLowerCase() === (formValue.sku || '').toString().trim().toLowerCase()
+        (r['SKU'] || '').toString().trim().toLowerCase() === 
+        (formValue.sku || '').toString().trim().toLowerCase()
       );
     }
 
     if (skuRecords.length === 0) {
-      this.showSnackbarMessage('SKU not found in master data. Try reselecting from dropdown.', 'error');
+      this.showSnackbarMessage('SKU not found in master data.', 'error');
       return;
     }
 
     const skuInfo = skuRecords[0];
 
     const materials = skuRecords
-      .filter(r => r.raw_material?.trim() && r.quantity_per_batch)
+      .filter(r => r['RAW MATERIAL']?.trim() && r['QUANTITY/BATCH'])
       .map(r => ({
-        name: r.raw_material!.trim(),
-        qty: parseFloat(r.quantity_per_batch) || 0,
-        unit: r.batch_unit || '',
-        type: r.type || '',
-        requiredQty: (parseFloat(r.quantity_per_batch) || 0) * formValue.qtyNeeded,
-        servedQty: 0,
-        remarks: '',
-        servedDate: undefined,
-        isUnserved: false
+        name: r['RAW MATERIAL'].trim(),
+        qty: parseFloat(r['QUANTITY/BATCH']) || 0,
+        unit: r['UNIT4'] || '',
+        type: r['TYPE'] || '',
+        requiredQty: (parseFloat(r['QUANTITY/BATCH']) || 0) * formValue.qtyNeeded
       }));
 
     if (materials.length === 0) {
@@ -447,61 +403,36 @@ export class DailyProductionComponent implements OnInit {
       return;
     }
 
-    const finalSkuCode = skuInfo.sku_code?.trim() || skuCodeToUse || this.generateSkuCodeFromName(formValue.sku);
-    const finalSkuName = formValue.sku || skuInfo.sku_name;
-
-    const newItem: DashboardRequisition = {
+    const newItem = {
       id: this.generateId(),
-      skuCode: finalSkuCode,
-      skuName: finalSkuName,
+      skuCode: skuInfo['SKU CODE']?.trim() || skuCodeToUse,
+      skuName: formValue.sku || skuInfo['SKU'],
       category: formValue.category,
       qtyNeeded: formValue.qtyNeeded,
       supplier: formValue.supplier,
-      qtyPerUnit: skuInfo.quantity_per_unit || '',
-      unit: skuInfo.unit || '',
-      qtyPerPack: skuInfo.quantity_per_pack || '',
-      unit2: skuInfo.pack_unit || '',
+      qtyPerUnit: skuInfo['QUANTITY PER UNIT'] || '',
+      unit: skuInfo['UNIT'] || '',
+      qtyPerPack: skuInfo['QUANTITY PER PACK'] || '',
+      unit2: skuInfo['UNIT2'] || '',
       materials: materials,
-      status: 'draft',
-      tableId: this.selectedTableId
+      tableId: this.selectedTableId,
+      userId: this.currentUser.id, // Add user ID for filtering
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
-    // Add to local array immediately → visible in UI instantly
+    // Add to local array
     this.requisitionItems.push(newItem);
-
-    try {
-      const requisitionData = {
-        sku_code: newItem.skuCode,
-        sku_name: newItem.skuName,
-        category: newItem.category,
-        qty_needed: newItem.qtyNeeded,
-        supplier: newItem.supplier,
-        qty_per_unit: newItem.qtyPerUnit,
-        unit: newItem.unit,
-        qty_per_pack: newItem.qtyPerPack,
-        pack_unit: newItem.unit2,
-        status: newItem.status,
-        user_id: this.currentUser?.id || '',
-        table_id: this.selectedTableId
-      };
-
-      const result = await this.dbService.createRequisition(requisitionData, materials);
-      if (result.success && result.requisitionId) {
-        newItem.id = result.requisitionId;
-      }
-    } catch (error) {
-      console.error('Error saving to database:', error);
-      this.showSnackbarMessage('Error saving to database', 'error');
-      // Remove from UI if save failed
-      const index = this.requisitionItems.findIndex(i => i.id === newItem.id);
-      if (index !== -1) this.requisitionItems.splice(index, 1);
-      this.filterAndPaginate();
-      return;
-    }
-
-    await this.saveTableData();
-
-    // Removed reload — we trust local state now
+    
+    // Save to database
+    await this.saveRequisitionToDatabase(newItem);
+    
+    // Update table item count
+    await this.updateTableItemCount();
+    
+    // Save to localStorage
+    await this.saveToLocalStorage();
+    
     this.showSnackbarMessage(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
 
     this.requisitionForm.reset({
@@ -517,14 +448,46 @@ export class DailyProductionComponent implements OnInit {
     this.cdRef.detectChanges();
   }
 
-  private generateSkuCodeFromName(skuName: string): string {
-    if (!skuName) return 'NO-CODE';
-    let hash = 0;
-    for (let i = 0; i < skuName.length; i++) {
-      hash = ((hash << 5) - hash) + skuName.charCodeAt(i);
-      hash = hash & hash;
+  private async saveRequisitionToDatabase(item: any): Promise<void> {
+    try {
+      if (!this.currentUser || !this.selectedTableId) return;
+
+      const requisitionData = {
+        user_id: this.currentUser.id,
+        table_id: this.selectedTableId,
+        sku_code: item.skuCode,
+        sku_name: item.skuName,
+        category: item.category,
+        qty_needed: item.qtyNeeded,
+        supplier: item.supplier,
+        qty_per_unit: item.qtyPerUnit,
+        unit: item.unit,
+        qty_per_pack: item.qtyPerPack,
+        pack_unit: item.unit2,
+        status: 'draft'
+      };
+
+      const formattedMaterials = item.materials.map((material: any) => ({
+        material_name: material.name,
+        type: material.type || 'raw-material',
+        qty_per_batch: material.qty,
+        unit: material.unit || 'kg',
+        required_qty: material.requiredQty,
+        served_qty: 0,
+        brand: '',
+        supplier: item.supplier || '',
+        status: 'pending'
+      }));
+
+      const result = await this.dbService.createRequisition(requisitionData, formattedMaterials);
+      
+      if (!result.success) {
+        console.error('Failed to save requisition to database:', result.error);
+        this.showSnackbarMessage('Failed to save to database', 'error');
+      }
+    } catch (error) {
+      console.error('Error saving requisition to database:', error);
     }
-    return 'GEN-' + Math.abs(hash).toString().substring(0, 6);
   }
 
   async updateQty(itemId: string, qty: number): Promise<void> {
@@ -532,63 +495,94 @@ export class DailyProductionComponent implements OnInit {
 
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
-      const oldQty = item.qtyNeeded;
       item.qtyNeeded = qty;
-      item.materials.forEach(m => m.requiredQty = m.qty * qty);
+      item.materials.forEach((m: any) => m.requiredQty = m.qty * qty);
+      item.updatedAt = new Date().toISOString();
 
-      try {
-        await this.dbService.updateRequisitionQty(itemId, qty);
-        await this.saveTableData();
-        this.filterAndPaginate();
-      } catch (error) {
-        console.error('Error updating quantity:', error);
-        item.qtyNeeded = oldQty;
-        item.materials.forEach(m => m.requiredQty = m.qty * oldQty);
-        this.showSnackbarMessage('Failed to update quantity', 'error');
+      // Update in database
+      await this.updateRequisitionInDatabase(itemId, { qtyNeeded: qty });
+      
+      await this.saveToLocalStorage();
+      this.filterAndPaginate();
+    }
+  }
+
+  private async updateRequisitionInDatabase(itemId: string, updates: any): Promise<void> {
+    try {
+      // Find the database ID if available
+      const item = this.requisitionItems.find(i => i.id === itemId);
+      if (item && item.dbId) {
+        const result = await this.dbService.updateRequisitionQty(item.dbId, updates.qtyNeeded);
+        if (!result.success) {
+          console.error('Failed to update requisition in database:', result.error);
+        }
       }
+    } catch (error) {
+      console.error('Error updating requisition in database:', error);
     }
   }
 
   async updateSupplier(itemId: string, supplier: string): Promise<void> {
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (item) {
-      const oldSupplier = item.supplier;
       item.supplier = supplier;
+      item.updatedAt = new Date().toISOString();
 
-      try {
-        await this.dbService.updateRequisitionSupplier(itemId, supplier);
-        await this.saveTableData();
-      } catch (error) {
-        console.error('Error updating supplier:', error);
-        item.supplier = oldSupplier;
-        this.showSnackbarMessage('Failed to update supplier', 'error');
+      // Update in database
+      await this.updateSupplierInDatabase(itemId, supplier);
+      
+      await this.saveToLocalStorage();
+    }
+  }
+
+  private async updateSupplierInDatabase(itemId: string, supplier: string): Promise<void> {
+    try {
+      const item = this.requisitionItems.find(i => i.id === itemId);
+      if (item && item.dbId) {
+        const result = await this.dbService.updateRequisitionSupplier(item.dbId, supplier);
+        if (!result.success) {
+          console.error('Failed to update supplier in database:', result.error);
+        }
       }
+    } catch (error) {
+      console.error('Error updating supplier in database:', error);
     }
   }
 
   async deleteItem(itemId: string): Promise<void> {
-    this.showConfirmDialog(
-      'Delete Item',
-      'Are you sure you want to delete this item?',
-      'Delete',
-      'Cancel',
-      async () => {
-        const index = this.requisitionItems.findIndex(i => i.id === itemId);
-        if (index !== -1) {
-          const removedName = this.requisitionItems[index].skuName;
-          try {
-            await this.dbService.deleteRequisition(itemId);
-            this.requisitionItems.splice(index, 1);
-            await this.saveTableData();
-            this.filterAndPaginate();
-            this.showSnackbarMessage(`${removedName} removed`, 'success');
-          } catch (error) {
-            console.error('Error deleting item:', error);
-            this.showSnackbarMessage('Failed to delete item', 'error');
-          }
+    if (confirm('Are you sure you want to delete this item?')) {
+      const index = this.requisitionItems.findIndex(i => i.id === itemId);
+      if (index !== -1) {
+        const removedItem = this.requisitionItems[index];
+        const removedName = removedItem.skuName;
+        
+        // Delete from database
+        if (removedItem.dbId) {
+          await this.deleteRequisitionFromDatabase(removedItem.dbId);
         }
+        
+        // Remove from local array
+        this.requisitionItems.splice(index, 1);
+        
+        // Update table item count
+        await this.updateTableItemCount();
+        
+        await this.saveToLocalStorage();
+        this.filterAndPaginate();
+        this.showSnackbarMessage(`${removedName} removed`, 'success');
       }
-    );
+    }
+  }
+
+  private async deleteRequisitionFromDatabase(dbId: string): Promise<void> {
+    try {
+      const result = await this.dbService.deleteRequisition(dbId);
+      if (!result.success) {
+        console.error('Failed to delete requisition from database:', result.error);
+      }
+    } catch (error) {
+      console.error('Error deleting requisition from database:', error);
+    }
   }
 
   toggleRow(itemId: string): void {
@@ -604,31 +598,6 @@ export class DailyProductionComponent implements OnInit {
     }
   }
 
-  async updateMaterialServedQty(itemId: string, materialIndex: number, servedQty: number, remarks?: string): Promise<void> {
-    const item = this.requisitionItems.find(i => i.id === itemId);
-    if (item && item.materials[materialIndex]) {
-      const material = item.materials[materialIndex];
-      const oldServedQty = material.servedQty;
-      const oldRemarks = material.remarks;
-      
-      material.servedQty = servedQty;
-      material.remarks = remarks;
-      material.servedDate = new Date();
-      material.isUnserved = servedQty < material.requiredQty;
-
-      try {
-        await this.dbService.updateMaterialServedQty(itemId, material.name, servedQty, remarks);
-        await this.saveTableData();
-        this.filterAndPaginate();
-      } catch (error) {
-        console.error('Error updating served qty:', error);
-        material.servedQty = oldServedQty;
-        material.remarks = oldRemarks;
-        this.showSnackbarMessage('Failed to update served quantity', 'error');
-      }
-    }
-  }
-
   filterMaterials(itemId: string, filterType: string): void {
     const item = this.requisitionItems.find(i => i.id === itemId);
     if (!item) return;
@@ -636,7 +605,7 @@ export class DailyProductionComponent implements OnInit {
     if (!filterType) {
       this.filteredMaterials.set(itemId, [...item.materials]);
     } else {
-      const filtered = item.materials.filter(m => {
+      const filtered = item.materials.filter((m: any) => {
         const type = (m.type || '').toLowerCase().trim();
         return this.typeMapping[filterType as keyof typeof this.typeMapping]?.some(k => type.includes(k)) || false;
       });
@@ -645,13 +614,27 @@ export class DailyProductionComponent implements OnInit {
     this.cdRef.detectChanges();
   }
 
-  getFilteredMaterials(itemId: string, allMaterials: RawMaterial[]): RawMaterial[] {
+  getFilteredMaterials(itemId: string, allMaterials: any[]): any[] {
     return this.filteredMaterials.get(itemId) || allMaterials;
   }
 
   filterAndPaginate(): void {
+    if (!this.currentUser) {
+      this.filteredItems = [];
+      return;
+    }
+
     let filtered = [...this.requisitionItems];
 
+    // Filter by current user only
+    filtered = filtered.filter(i => i.userId === this.currentUser?.id);
+
+    // Filter by table
+    if (this.selectedTableId) {
+      filtered = filtered.filter(i => i.tableId === this.selectedTableId);
+    }
+
+    // Search filter
     if (this.searchQuery) {
       const q = this.searchQuery.toLowerCase();
       filtered = filtered.filter(i =>
@@ -661,6 +644,7 @@ export class DailyProductionComponent implements OnInit {
       );
     }
 
+    // Sort
     if (this.sortField) {
       filtered.sort((a: any, b: any) => {
         const aVal = a[this.sortField] || '';
@@ -669,6 +653,7 @@ export class DailyProductionComponent implements OnInit {
       });
     }
 
+    // Pagination
     this.totalPages = Math.ceil(filtered.length / this.itemsPerPage);
     this.currentPage = Math.min(this.currentPage, this.totalPages || 1);
 
@@ -701,7 +686,15 @@ export class DailyProductionComponent implements OnInit {
   }
 
   printTable(): void {
-    if (this.requisitionItems.length === 0) {
+    if (!this.currentUser) {
+      this.showSnackbarMessage('Please log in to print', 'error');
+      return;
+    }
+
+    // Filter items for current user only
+    const userItems = this.requisitionItems.filter(i => i.userId === this.currentUser?.id);
+    
+    if (userItems.length === 0) {
       this.showSnackbarMessage('No data to print.', 'error');
       return;
     }
@@ -712,16 +705,11 @@ export class DailyProductionComponent implements OnInit {
       return;
     }
 
-    const table = document.querySelector('.table-container-compact')?.cloneNode(true) as HTMLElement;
-    if (!table) {
-      this.showSnackbarMessage('Failed to prepare print content', 'error');
-      return;
-    }
-
     const title = this.currentTable?.name || 'Requisition Items';
     const date = new Date().toLocaleString('en-PH');
+    const userName = this.currentUser?.full_name || this.currentUser?.username || 'User';
     
-    const printContent = `
+    let printContent = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -731,16 +719,12 @@ export class DailyProductionComponent implements OnInit {
           .print-header { margin-bottom: 20px; }
           .print-title { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
           .print-info { color: #666; margin-bottom: 10px; }
+          .user-info { margin-bottom: 10px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
           th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
           td { padding: 8px; border: 1px solid #ddd; }
           .category-tag { background: #e9ecef; padding: 2px 6px; border-radius: 10px; font-size: 10px; }
-          .material-card { border: 1px solid #ddd; padding: 8px; margin: 5px 0; border-radius: 4px; }
-          .material-name { font-weight: bold; display: block; }
-          .material-type { background: #d1ecf1; padding: 2px 6px; border-radius: 10px; font-size: 10px; float: right; }
-          .material-details { margin-top: 5px; }
-          .detail { display: flex; justify-content: space-between; margin: 2px 0; }
-          .remarks { font-style: italic; color: #666; margin-top: 5px; }
+          .material-type-tag { background: #d1ecf1; padding: 2px 6px; border-radius: 10px; font-size: 10px; }
           @media print {
             @page { margin: 0.5cm; }
             body { margin: 0; }
@@ -750,13 +734,57 @@ export class DailyProductionComponent implements OnInit {
       <body>
         <div class="print-header">
           <div class="print-title">${title}</div>
+          <div class="user-info">
+            <strong>User:</strong> ${userName}
+          </div>
           <div class="print-info">
             Generated: ${date} | 
-            Items: ${this.requisitionItems.length} | 
+            Items: ${userItems.length} | 
             File: ${this.uploadedFileName || 'No file'}
           </div>
         </div>
-        ${table.outerHTML}
+        <table>
+          <thead>
+            <tr>
+              <th>SKU Code</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th>Qty</th>
+              <th>Supplier</th>
+              <th>Raw Material</th>
+              <th>Qty/Batch</th>
+              <th>Unit</th>
+              <th>Type</th>
+              <th>Total Required</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    userItems.forEach(item => {
+      if (!item.materials?.length) return;
+
+      item.materials.forEach((m: any, index: number) => {
+        printContent += `
+          <tr>
+            <td>${index === 0 ? item.skuCode : ''}</td>
+            <td>${index === 0 ? item.skuName : ''}</td>
+            <td>${index === 0 ? (item.category || '') : ''}</td>
+            <td>${index === 0 ? item.qtyNeeded : ''}</td>
+            <td>${index === 0 ? (item.supplier || '') : ''}</td>
+            <td>${m.name}</td>
+            <td>${m.qty}</td>
+            <td>${m.unit || '-'}</td>
+            <td><span class="material-type-tag">${m.type || 'N/A'}</span></td>
+            <td><strong>${m.requiredQty} ${m.unit || ''}</strong></td>
+          </tr>
+        `;
+      });
+    });
+
+    printContent += `
+          </tbody>
+        </table>
       </body>
       </html>
     `;
@@ -771,38 +799,47 @@ export class DailyProductionComponent implements OnInit {
   }
 
   exportData(type: string = 'all'): void {
+    if (!this.currentUser) {
+      this.showSnackbarMessage('Please log in to export', 'error');
+      return;
+    }
+    
     this.isExportDropdownOpen = false;
 
-    if (this.requisitionItems.length === 0) {
+    // Filter items for current user only
+    const userItems = this.requisitionItems.filter(i => i.userId === this.currentUser?.id);
+    
+    if (userItems.length === 0) {
       this.showSnackbarMessage('No data to export.', 'error');
       return;
     }
 
+    const userName = this.currentUser?.full_name || this.currentUser?.username || 'User';
+    
     const data = [
-      ['RAW MATERIAL E-PORTAL REQUISITION'],
+      ['RAW MATERIAL REQUISITION'],
       ['Generated', new Date().toLocaleString('en-PH')],
+      ['User', userName],
       ['Master File', this.uploadedFileName || 'None'],
       ['Table', this.currentTable?.name || 'No table'],
       ['Export Type', this.getExportTypeDisplayName(type)],
       [''],
-      ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier',
-      'Raw Material', 'Qty/Batch', 'Unit', 'Type', 'Required Qty', 'Served Qty',
-      'Remarks', 'Served Date', 'Unserved']
+      ['SKU Code', 'SKU', 'Category', 'Qty Needed', 'Supplier', 'Raw Material', 'Qty/Batch', 'Unit', 'Type', 'Total Required']
     ];
 
-    this.requisitionItems.forEach(item => {
+    userItems.forEach(item => {
       if (!item.materials?.length) return;
 
       let materialsToExport = item.materials;
       if (type !== 'all') {
-        materialsToExport = item.materials.filter(m =>
+        materialsToExport = item.materials.filter((m: any) =>
           this.mapTypeToFilter(m.type) === type
         );
       }
 
       if (materialsToExport.length === 0) return;
 
-      materialsToExport.forEach((m, index) => {
+      materialsToExport.forEach((m: any, index: number) => {
         const row: string[] = [
           index === 0 ? item.skuCode : '',
           index === 0 ? item.skuName : '',
@@ -813,11 +850,7 @@ export class DailyProductionComponent implements OnInit {
           m.qty.toString(),
           m.unit || '',
           m.type || '',
-          m.requiredQty.toString(),
-          (m.servedQty || 0).toString(),
-          m.remarks || '',
-          m.servedDate ? m.servedDate.toLocaleDateString() : '',
-          m.isUnserved ? 'Yes' : 'No'
+          m.requiredQty.toString()
         ];
 
         data.push(row);
@@ -828,7 +861,7 @@ export class DailyProductionComponent implements OnInit {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requisition');
 
-    const fileName = `Requisition_${this.currentTable?.name.replace(/\s+/g, '_')}_${
+    const fileName = `${userName}_Requisition_${this.currentTable?.name?.replace(/\s+/g, '_') || 'Table'}_${
       type === 'all' ? 'All' :
       this.getExportTypeDisplayName(type).replace(/&/g, 'and').replace(/\s+/g, '')
     }_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
@@ -860,71 +893,60 @@ export class DailyProductionComponent implements OnInit {
   }
 
   async clearAll(): Promise<void> {
+    if (!this.currentUser) {
+      this.showSnackbarMessage('Please log in to clear table', 'error');
+      return;
+    }
+    
     if (!this.selectedTableId) {
       this.showSnackbarMessage('Please select a table first', 'error');
       return;
     }
     
-    this.showConfirmDialog(
-      'Clear Table',
-      'Clear all items from this table? This action cannot be undone.',
-      'Clear',
-      'Cancel',
-      async () => {
-        try {
-          const supabase = this.supabaseService.getClient();
-          const { data: requisitions } = await supabase
-            .from('material_requisitions')
-            .select('id')
-            .eq('table_id', this.selectedTableId);
-          
-          if (requisitions && requisitions.length > 0) {
-            for (const req of requisitions) {
-              await supabase
-                .from('material_requisition_materials')
-                .delete()
-                .eq('requisition_id', req.id);
-            }
-            
-            await supabase
-              .from('material_requisitions')
-              .delete()
-              .eq('table_id', this.selectedTableId);
-          }
-          
-          this.requisitionItems = [];
-          this.searchQuery = '';
-          this.currentPage = 1;
-          
-          await this.saveTableData();
-          this.filterAndPaginate();
-          this.showSnackbarMessage('Table cleared successfully!', 'success');
-        } catch (error) {
-          console.error('Error clearing table:', error);
-          this.showSnackbarMessage('Failed to clear table', 'error');
+    if (confirm('Clear all items from this table? This action cannot be undone.')) {
+      // Get items to delete from database
+      const itemsToDelete = this.requisitionItems.filter(i => 
+        i.tableId === this.selectedTableId && i.userId === this.currentUser?.id
+      );
+      
+      // Delete from database
+      for (const item of itemsToDelete) {
+        if (item.dbId) {
+          await this.deleteRequisitionFromDatabase(item.dbId);
         }
       }
-    );
+      
+      // Remove from local array
+      this.requisitionItems = this.requisitionItems.filter(i => 
+        i.tableId !== this.selectedTableId || i.userId !== this.currentUser?.id
+      );
+      
+      this.searchQuery = '';
+      this.currentPage = 1;
+      
+      // Update table item count
+      await this.updateTableItemCount();
+      
+      await this.saveToLocalStorage();
+      this.filterAndPaginate();
+      this.showSnackbarMessage('Table cleared successfully!', 'success');
+    }
   }
 
   clearFile(): void {
-    this.showConfirmDialog(
-      'Clear Master File',
-      'Clear uploaded master file?',
-      'Clear',
-      'Cancel',
-      () => {
-        this.masterData = [];
-        this.uploadedFileName = '';
-        this.categories = [];
-        this.skus = [];
-        this.requisitionForm.reset({
-          qtyNeeded: 1,
-          supplier: ''
-        });
-        this.showSnackbarMessage('Master file cleared', 'info');
-      }
-    );
+    if (confirm('Clear uploaded master file?')) {
+      this.masterData = [];
+      this.uploadedFileName = '';
+      this.categories = [];
+      this.skus = [];
+      this.requisitionForm.reset({
+        qtyNeeded: 1,
+        supplier: ''
+      });
+      
+      this.saveToLocalStorage();
+      this.showSnackbarMessage('Master file cleared', 'info');
+    }
   }
 
   private generateId(): string {
@@ -947,212 +969,287 @@ export class DailyProductionComponent implements OnInit {
     this.cdRef.detectChanges();
   }
 
-  private showConfirmDialog(title: string, message: string, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm: () => void, onCancel?: () => void): void {
-    if (confirm(`${title}\n\n${message}`)) onConfirm();
-    else if (onCancel) onCancel();
-  }
-
-  get window(): any { return window; }
-
-  private convertToLocalTable(dbTable: UserTable): LocalUserTable {
-    return {
-      id: dbTable.id,
-      name: dbTable.name,
-      userId: dbTable.user_id,
-      status: dbTable.status,
-      submittedBy: dbTable.submitted_by,
-      submittedDate: dbTable.submitted_date ? new Date(dbTable.submitted_date) : undefined,
-      reviewedBy: dbTable.reviewed_by,
-      reviewedDate: dbTable.reviewed_date ? new Date(dbTable.reviewed_date) : undefined,
-      approvedBy: dbTable.approved_by,
-      approvedDate: dbTable.approved_date ? new Date(dbTable.approved_date) : undefined,
-      remarks: dbTable.remarks,
-      itemCount: dbTable.item_count,
-      createdAt: new Date(dbTable.created_at),
-      updatedAt: new Date(dbTable.updated_at)
-    };
-  }
-
-  async loadUserTables(): Promise<void> {
+  // Local storage methods
+  private async loadFromLocalStorage(): Promise<void> {
     try {
-      const dbTables = await this.dbService.getUserTables(this.currentUser.id);
-      this.userTables = dbTables.map(table => this.convertToLocalTable(table));
+      if (!this.currentUser) return;
+      
+      // Use user-specific storage key
+      const storageKey = `productionDashboardData_${this.currentUser.id}`;
+      const savedData = localStorage.getItem(storageKey);
+      
+      if (savedData) {
+        const data = JSON.parse(savedData);
+        this.masterData = data.masterData || [];
+        this.requisitionItems = data.requisitionItems || [];
+        this.uploadedFileName = data.uploadedFileName || '';
+        
+        // Filter items to only show current user's items
+        this.requisitionItems = this.requisitionItems.filter(i => i.userId === this.currentUser?.id);
+        
+        if (this.masterData.length > 0) {
+          this.populateCategories();
+        }
+      }
+    } catch (error) {
+      console.error('Error loading from localStorage:', error);
+    }
+  }
+
+  private async saveToLocalStorage(): Promise<void> {
+    try {
+      if (!this.currentUser) return;
+      
+      // Use user-specific storage key
+      const storageKey = `productionDashboardData_${this.currentUser.id}`;
+      
+      const data = {
+        masterData: this.masterData,
+        requisitionItems: this.requisitionItems.filter(i => i.userId === this.currentUser?.id),
+        uploadedFileName: this.uploadedFileName,
+        selectedTableId: this.selectedTableId,
+        lastSaved: new Date().toISOString()
+      };
+      
+      localStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+  }
+
+  // Table management
+  private async loadUserTables(): Promise<void> {
+    try {
+      if (!this.currentUser) return;
+      
+      this.userTables = await this.dbService.getUserTables(this.currentUser.id);
+      
+      // Also load requisitions from database for this user
+      await this.loadRequisitionsFromDatabase();
+      
+      this.cdRef.detectChanges();
     } catch (error) {
       console.error('Error loading user tables:', error);
-      this.showSnackbarMessage('Error loading user tables', 'error');
+      this.showSnackbarMessage('Failed to load tables', 'error');
+    }
+  }
+
+  private async loadRequisitionsFromDatabase(): Promise<void> {
+    try {
+      if (!this.currentUser) return;
+      
+      // Get all tables for user
+      for (const table of this.userTables) {
+        const requisitions = await this.dbService.getTableRequisitions(table.id);
+        
+        // Convert database requisitions to local format
+        requisitions.forEach((req: any) => {
+          // Check if this requisition is already in local array
+          const existingIndex = this.requisitionItems.findIndex(
+            i => i.dbId === req.id && i.userId === this.currentUser?.id
+          );
+          
+          if (existingIndex === -1 && req.user_id === this.currentUser?.id) {
+            const materials = req.materials?.map((m: any) => ({
+              name: m.material_name,
+              qty: m.qty_per_batch,
+              unit: m.unit,
+              type: m.type,
+              requiredQty: m.required_qty
+            })) || [];
+            
+            this.requisitionItems.push({
+              id: this.generateId(),
+              dbId: req.id,
+              skuCode: req.sku_code,
+              skuName: req.sku_name,
+              category: req.category,
+              qtyNeeded: req.qty_needed,
+              supplier: req.supplier,
+              qtyPerUnit: req.qty_per_unit,
+              unit: req.unit,
+              qtyPerPack: req.qty_per_pack,
+              pack_unit: req.pack_unit,
+              materials: materials,
+              tableId: req.table_id,
+              userId: req.user_id,
+              createdAt: req.created_at,
+              updatedAt: req.updated_at
+            });
+          }
+        });
+      }
+      
+      await this.saveToLocalStorage();
+    } catch (error) {
+      console.error('Error loading requisitions from database:', error);
     }
   }
 
   async createNewTable(): Promise<void> {
-    this.showPromptDialog(
-      'Create New Table',
-      'Enter table name:',
-      'Create',
-      'Cancel',
-      async (tableName: string) => {
-        if (!tableName?.trim()) {
-          this.showSnackbarMessage('Table name is required', 'error');
-          return;
-        }
+    if (!this.currentUser) {
+      this.showSnackbarMessage('Please log in to create tables', 'error');
+      return;
+    }
+    
+    const tableName = prompt('Enter table name:');
+    if (!tableName?.trim()) {
+      this.showSnackbarMessage('Table name is required', 'error');
+      return;
+    }
 
-        try {
-          const newTable = await this.dbService.createUserTable({
-            name: tableName.trim(),
-            user_id: this.currentUser.id,
-            status: 'draft',
-            item_count: 0
-          });
+    const trimmedName = tableName.trim();
+    
+    try {
+      const result = await this.dbService.createUserTable({
+        user_id: this.currentUser.id,
+        name: trimmedName,
+        status: 'draft',
+        item_count: 0,
+        submitted_by: undefined,
+        submitted_date: undefined,
+        approved_by: undefined,
+        approved_date: undefined,
+        reviewed_by: undefined,
+        reviewed_date: undefined,
+        remarks: undefined
+      });
 
-          if (newTable.success && newTable.tableId) {
-            const localTable: LocalUserTable = {
-              id: newTable.tableId,
-              name: tableName.trim(),
-              userId: this.currentUser.id,
-              status: 'draft',
-              itemCount: 0,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            };
-            
-            this.userTables.push(localTable);
-            this.selectedTableId = newTable.tableId;
-            this.currentTable = localTable;
-            this.requisitionItems = [];
-            this.filterAndPaginate();
-            this.showSnackbarMessage('Table created successfully', 'success');
-          }
-        } catch (error) {
-          console.error('Error creating table:', error);
-          this.showSnackbarMessage('Failed to create table', 'error');
-        }
+      if (result.success && result.tableId) {
+        const newTable = {
+          id: result.tableId,
+          name: trimmedName,
+          status: 'draft',
+          itemCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        this.userTables.push(newTable);
+        this.selectedTableId = result.tableId;
+        this.currentTable = newTable;
+        
+        // Clear any existing items for this table
+        this.requisitionItems = this.requisitionItems.filter(i => 
+          i.tableId !== this.selectedTableId || i.userId !== this.currentUser?.id
+        );
+        
+        await this.saveToLocalStorage();
+        this.filterAndPaginate();
+        this.showSnackbarMessage('Table created successfully', 'success');
+      } else {
+        this.showSnackbarMessage('Failed to create table', 'error');
       }
-    );
+    } catch (error) {
+      console.error('Error creating table:', error);
+      this.showSnackbarMessage('Failed to create table', 'error');
+    }
   }
 
   async loadTableData(): Promise<void> {
     if (!this.selectedTableId) {
       this.currentTable = null;
-      this.requisitionItems = [];
       this.filterAndPaginate();
       return;
     }
 
-    localStorage.setItem('lastSelectedTable', this.selectedTableId);
+    // Update current table reference
+    this.currentTable = this.userTables.find(t => t.id === this.selectedTableId) || null;
     
-    try {
-      const dbTable = await this.dbService.getTableById(this.selectedTableId);
-      if (dbTable) {
-        this.currentTable = this.convertToLocalTable(dbTable);
-      }
-      
-      this.requisitionItems = await this.dbService.getTableRequisitions(this.selectedTableId);
-      
-      this.filterAndPaginate();
-    } catch (error) {
-      console.error('Error loading table data:', error);
-      this.showSnackbarMessage('Failed to load table data', 'error');
-    }
+    await this.saveToLocalStorage();
+    this.filterAndPaginate();
   }
 
   async renameTable(): Promise<void> {
-    if (!this.selectedTableId || !this.currentTable) return;
+    if (!this.currentUser || !this.selectedTableId || !this.currentTable) return;
 
-    const currentTable = this.currentTable;
+    const newName = prompt('Enter new table name:', this.currentTable.name);
+    if (!newName?.trim() || newName.trim() === this.currentTable.name) {
+      if (!newName?.trim()) this.showSnackbarMessage('Table name is required', 'error');
+      return;
+    }
 
-    this.showPromptDialog(
-      'Rename Table',
-      'Enter new table name:',
-      'Rename',
-      'Cancel',
-      async (newName: string) => {
-        if (!newName?.trim() || newName.trim() === currentTable.name) {
-          if (!newName?.trim()) this.showSnackbarMessage('Table name is required', 'error');
-          return;
-        }
-
-        const trimmedName = newName.trim();
-
-        try {
-          await this.dbService.updateTableName(this.selectedTableId, trimmedName);
-          
-          currentTable.name = trimmedName;
-          currentTable.updatedAt = new Date();
-          
-          const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
-          if (tableIndex !== -1) {
-            this.userTables[tableIndex].name = trimmedName;
-            this.userTables[tableIndex].updatedAt = new Date();
-          }
-          
-          this.showSnackbarMessage('Table renamed successfully', 'success');
-        } catch (error) {
-          console.error('Error renaming table:', error);
-          this.showSnackbarMessage('Failed to rename table', 'error');
-        }
-      },
-      currentTable.name
-    );
-  }
-
-  async deleteTable(): Promise<void> {
-    if (!this.selectedTableId) return;
-    
-    this.showConfirmDialog(
-      'Delete Table',
-      'Are you sure you want to delete this table? All data will be lost.',
-      'Delete',
-      'Cancel',
-      async () => {
-        try {
-          await this.dbService.deleteTable(this.selectedTableId);
-          
-          this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
-          this.selectedTableId = '';
-          this.currentTable = null;
-          this.requisitionItems = [];
-          this.filterAndPaginate();
-          
-          localStorage.removeItem('lastSelectedTable');
-          this.showSnackbarMessage('Table deleted successfully', 'success');
-        } catch (error) {
-          console.error('Error deleting table:', error);
-          this.showSnackbarMessage('Failed to delete table', 'error');
-        }
-      }
-    );
-  }
-
-  private async saveTableData(): Promise<void> {
-    if (!this.selectedTableId || !this.currentTable) return;
+    const trimmedName = newName.trim();
     
     try {
-      await this.dbService.updateTableItemCount(this.selectedTableId, this.requisitionItems.length);
+      const result = await this.dbService.updateTableName(this.selectedTableId, trimmedName);
       
-      this.currentTable.itemCount = this.requisitionItems.length;
-      this.currentTable.updatedAt = new Date();
-      
-      const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
-      if (tableIndex !== -1) {
-        this.userTables[tableIndex].itemCount = this.requisitionItems.length;
-        this.userTables[tableIndex].updatedAt = new Date();
+      if (result.success) {
+        this.currentTable.name = trimmedName;
+        this.currentTable.updatedAt = new Date();
+        
+        const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
+        if (tableIndex !== -1) {
+          this.userTables[tableIndex].name = trimmedName;
+          this.userTables[tableIndex].updatedAt = new Date();
+        }
+        
+        await this.saveToLocalStorage();
+        this.showSnackbarMessage('Table renamed successfully', 'success');
+      } else {
+        this.showSnackbarMessage('Failed to rename table', 'error');
       }
     } catch (error) {
-      console.error('Error saving table data:', error);
-      this.showSnackbarMessage('Error saving table data', 'error');
+      console.error('Error renaming table:', error);
+      this.showSnackbarMessage('Failed to rename table', 'error');
     }
   }
 
-  private showPromptDialog(
-    title: string,
-    message: string,
-    confirmText: string = 'OK',
-    cancelText: string = 'Cancel',
-    onConfirm: (input: string) => void,
-    defaultValue: string = ''
-  ): void {
-    const input = prompt(`${title}\n\n${message}`, defaultValue);
-    if (input !== null) {
-      onConfirm(input);
+  async deleteTable(): Promise<void> {
+    if (!this.currentUser || !this.selectedTableId) return;
+    
+    if (confirm('Are you sure you want to delete this table? All data will be lost.')) {
+      try {
+        const result = await this.dbService.deleteTable(this.selectedTableId);
+        
+        if (result.success) {
+          // Remove table from list
+          this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
+          
+          // Remove items for this table
+          this.requisitionItems = this.requisitionItems.filter(i => 
+            i.tableId !== this.selectedTableId || i.userId !== this.currentUser?.id
+          );
+          
+          this.selectedTableId = '';
+          this.currentTable = null;
+          
+          await this.saveToLocalStorage();
+          this.filterAndPaginate();
+          this.showSnackbarMessage('Table deleted successfully', 'success');
+        } else {
+          this.showSnackbarMessage('Failed to delete table', 'error');
+        }
+      } catch (error) {
+        console.error('Error deleting table:', error);
+        this.showSnackbarMessage('Failed to delete table', 'error');
+      }
+    }
+  }
+
+  private async updateTableItemCount(): Promise<void> {
+    if (!this.selectedTableId || !this.currentUser) return;
+    
+    try {
+      // Count items for this table and user
+      const itemCount = this.requisitionItems.filter(i => 
+        i.tableId === this.selectedTableId && i.userId === this.currentUser?.id
+      ).length;
+      
+      // Update in database
+      const result = await this.dbService.updateTableItemCount(this.selectedTableId, itemCount);
+      
+      if (result.success && this.currentTable) {
+        this.currentTable.itemCount = itemCount;
+        
+        const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
+        if (tableIndex !== -1) {
+          this.userTables[tableIndex].itemCount = itemCount;
+          this.userTables[tableIndex].updatedAt = new Date();
+        }
+      }
+    } catch (error) {
+      console.error('Error updating table item count:', error);
     }
   }
 

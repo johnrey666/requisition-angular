@@ -6,9 +6,7 @@
       <div class="table-management-compact">
         <select class="form-select-sm" [(ngModel)]="selectedTableId" (change)="loadTableData()">
           <option value="">-- Select Table --</option>
-          @for (table of userTables; track table.id) {
-            <option [value]="table.id">{{ table.name }}</option>
-          }
+          <option *ngFor="let table of userTables" [value]="table.id">{{ table.name }}</option>
         </select>
         
         <button class="btn-sm btn-icon" (click)="createNewTable()" title="New Table">
@@ -29,20 +27,19 @@
     <div class="control-section">
       <div class="file-upload-compact">
         <button class="btn-sm btn-icon" (click)="masterFileInput.click()" title="Upload Master File">
-          <i class="fas fa-upload"></i> Master File
+          <i class="fas fa-upload"></i> Master
         </button>
         <input type="file" #masterFileInput id="masterFile" accept=".xlsx, .xls"
                (change)="onFileUpload($event)" style="display: none">
-        <span class="file-status-sm" [class.has-file]="uploadedFileName" title="{{uploadedFileName || 'No file'}}">
-          @if (uploadedFileName) {
-            {{ uploadedFileName.length > 18 ? (uploadedFileName | slice:0:15) + '...' : uploadedFileName }}
-          }
+        <span class="file-status-sm" [class.has-file]="uploadedFileName" [title]="uploadedFileName || 'No file'">
+          <span *ngIf="uploadedFileName">
+            {{ uploadedFileName.length > 20 ? (uploadedFileName | slice:0:18) + '...' : uploadedFileName }}
+          </span>
+          <span *ngIf="!uploadedFileName">No file</span>
         </span>
-        @if (uploadedFileName) {
-          <button class="btn-clear-sm" (click)="clearFile()" title="Clear">
-            <i class="fas fa-times"></i>
-          </button>
-        }
+        <button *ngIf="uploadedFileName" class="btn-clear-sm" (click)="clearFile()" title="Clear">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
     </div>
 
@@ -63,14 +60,12 @@
                   title="Export">
             <i class="fas fa-download"></i> Export
           </button>
-          @if (isExportDropdownOpen) {
-            <div class="dropdown-menu">
-              <button (click)="exportData('all')"><i class="fas fa-file-excel"></i> All Data</button>
-              <button (click)="exportData('pre-mix')"><i class="fas fa-flask"></i> Pre-mix</button>
-              <button (click)="exportData('packaging')"><i class="fas fa-box"></i> Packaging</button>
-              <button (click)="exportData('meat-veg')"><i class="fas fa-carrot"></i> Meat & Veg</button>
-            </div>
-          }
+          <div *ngIf="isExportDropdownOpen" class="dropdown-menu">
+            <button (click)="exportData('all')"><i class="fas fa-file-excel"></i> All Data</button>
+            <button (click)="exportData('pre-mix')"><i class="fas fa-flask"></i> Pre-mix</button>
+            <button (click)="exportData('packaging')"><i class="fas fa-box"></i> Packaging</button>
+            <button (click)="exportData('meat-veg')"><i class="fas fa-carrot"></i> Meat & Veg</button>
+          </div>
         </div>
 
         <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId" title="Clear Table">
@@ -89,17 +84,15 @@
       <span class="divider">•</span>
       <i class="fas fa-database"></i> Auto-saved
     </span>
-    @if (requisitionItems.length > itemsPerPage) {
-      <span class="pagination-mini">
-        <button class="btn-xs" (click)="changePage(-1)" [disabled]="currentPage === 1">
-          <i class="fas fa-chevron-left"></i>
-        </button>
-        <span>Page {{ currentPage }}/{{ totalPages }}</span>
-        <button class="btn-xs" (click)="changePage(1)" [disabled]="currentPage === totalPages">
-          <i class="fas fa-chevron-right"></i>
-        </button>
-      </span>
-    }
+    <span *ngIf="requisitionItems.length > itemsPerPage" class="pagination-mini">
+      <button class="btn-xs" (click)="changePage(-1)" [disabled]="currentPage === 1">
+        <i class="fas fa-chevron-left"></i>
+      </button>
+      <span>Page {{ currentPage }}/{{ totalPages }}</span>
+      <button class="btn-xs" (click)="changePage(1)" [disabled]="currentPage === totalPages">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+    </span>
   </div>
 
   <!-- Compact Table with Controls in Header -->
@@ -107,7 +100,7 @@
     <table class="compact-table">
       <thead>
         <tr>
-          <th colspan="10" class="table-header-with-controls">
+          <th colspan="12" class="table-header-with-controls">
             <div class="table-controls-row">
               <!-- Left: Table Title -->
               <div class="table-title-section">
@@ -121,35 +114,24 @@
                 <div class="quick-add-form" [formGroup]="requisitionForm">
                   <select class="form-select-xs" formControlName="category" (change)="onCategoryChange()" title="Category">
                     <option value="">Category</option>
-                    @for (category of categories; track category) {
-                      <option [value]="category">
-                        @if (category && category.length > 12) {
-                          {{ category | slice:0:12 }}...
-                        } @else {
-                          {{ category }}
-                        }
-                      </option>
-                    }
+                    <option *ngFor="let category of categories" [value]="category">
+                      {{ (category && category.length > 15) ? (category | slice:0:14) + '...' : category }}
+                    </option>
                   </select>
 
-                  <select class="form-select-xs" formControlName="sku" (change)="onSkuChange()" [disabled]="skus.length === 0" title="SKU">
+                  <select class="form-select-xs sku-select" formControlName="sku" (change)="onSkuChange()" [disabled]="skus.length === 0" title="SKU">
                     <option value="">SKU</option>
-                    @for (sku of skus; track sku.code) {
-                      <option [value]="sku.name">
-                        @if (sku.name && sku.name.length > 12) {
-                          {{ sku.name | slice:0:12 }}...
-                        } @else {
-                          {{ sku.name }}
-                        }
-                      </option>
-                    }
+                    <option *ngFor="let sku of skus" [value]="sku.name" [title]="sku.name">
+                      {{ (sku.name && sku.name.length > 20) ? (sku.name | slice:0:19) + '...' : sku.name }}
+                    </option>
                   </select>
 
-                  <input class="form-input-xs" type="text" formControlName="skuCode" placeholder="Code" readonly title="SKU Code">
+                  <input class="form-input-xs sku-code" type="text" formControlName="skuCode" placeholder="Code" readonly title="SKU Code">
 
-                  <input class="form-input-xs" type="text" formControlName="supplier" placeholder="Supplier" title="Supplier">
+                  <input class="form-input-xs supplier-input" type="text" formControlName="supplier" placeholder="Supplier" title="Supplier">
 
-                  <button class="btn-xs btn-primary" (click)="addRequisition()" [disabled]="requisitionForm.invalid || !selectedTableId" title="Add Item">
+                  <button class="btn-xs btn-primary add-btn" (click)="addRequisition()" 
+                          [disabled]="requisitionForm.invalid || !selectedTableId" title="Add Item">
                     <i class="fas fa-plus"></i> Add
                   </button>
                 </div>
@@ -158,19 +140,12 @@
               <!-- Right: Search Box -->
               <div class="table-search-section">
                 <div class="table-search-box">
-                  <i class="fas fa-search"></i>
+                  <i class="fas fa-search search-icon"></i>
                   <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="onSearch()" 
-                         placeholder="Search items..." class="table-search-input">
-                  <div class="search-actions">
-                    <button class="btn-xs btn-icon" (click)="onSearch()" title="Search">
-                      <i class="fas fa-search"></i>
-                    </button>
-                    @if (searchQuery) {
-                      <button class="btn-xs btn-icon" (click)="searchQuery = ''; onSearch()" title="Clear Search">
-                        <i class="fas fa-times"></i>
-                      </button>
-                    }
-                  </div>
+                         placeholder="Search..." class="table-search-input">
+                  <button *ngIf="searchQuery" class="btn-xs btn-clear-search" (click)="searchQuery = ''; onSearch()" title="Clear Search">
+                    <i class="fas fa-times"></i>
+                  </button>
                 </div>
               </div>
             </div>
@@ -179,45 +154,39 @@
         <tr>
           <th style="width:28px;"></th>
           <th style="width:70px;" class="sortable" (click)="sortBy('skuCode')">Code</th>
-          <th style="width:120px;" class="sortable" (click)="sortBy('skuName')">SKU</th>
-          <th style="width:90px;" class="sortable" (click)="sortBy('category')">Category</th>
-          <th style="width:60px;">Qty</th>
-          <th style="width:100px;">Supplier</th>
+          <th style="width:180px;" class="sortable" (click)="sortBy('skuName')">SKU</th>
+          <th style="width:100px;" class="sortable" (click)="sortBy('category')">Category</th>
+          <th style="width:50px;">Qty</th>
+          <th style="width:120px;">Supplier</th>
           <th style="width:65px;">Qty/Unit</th>
           <th style="width:50px;">Unit</th>
+          <th style="width:65px;">Qty/Pack</th>
+          <th style="width:60px;">Pack Unit</th>
           <th style="width:45px;">Mats</th>
           <th style="width:60px;">Actions</th>
         </tr>
       </thead>
       <tbody>
-        @if (filteredItems.length === 0) {
-          <tr class="empty-row">
-            <td colspan="10">
-              <div class="empty-state-compact">
-                <i class="fas fa-inbox"></i>
-                <p>{{ searchQuery ? 'No matching items found' : 'No requisitions added yet' }}</p>
-                @if (!selectedTableId) {
-                  <p class="empty-hint">Select or create a table to start adding requisitions</p>
-                }
-              </div>
-            </td>
-          </tr>
-        }
+        <tr *ngIf="filteredItems.length === 0" class="empty-row">
+          <td colspan="12">
+            <div class="empty-state-compact">
+              <i class="fas fa-inbox"></i>
+              <p>{{ searchQuery ? 'No matching items found' : 'No requisitions added yet' }}</p>
+              <p *ngIf="!selectedTableId" class="empty-hint">Select or create a table to start</p>
+            </div>
+          </td>
+        </tr>
 
-        @for (item of filteredItems; track item.id; let i = $index) {
+        <ng-container *ngFor="let item of filteredItems">
           <tr [class.expanded]="expandedRows.has(item.id)">
             <td>
               <button class="toggle-btn-sm" (click)="toggleRow(item.id)">
                 <i class="fas" [class.fa-chevron-up]="expandedRows.has(item.id)" [class.fa-chevron-down]="!expandedRows.has(item.id)"></i>
               </button>
             </td>
-            <td><strong>{{ item.skuCode }}</strong></td>
-            <td class="truncate">
-              @if (item.skuName && item.skuName.length > 20) {
-                {{ item.skuName | slice:0:20 }}...
-              } @else {
-                {{ item.skuName }}
-              }
+            <td><strong class="sku-code-display">{{ item.skuCode }}</strong></td>
+            <td class="truncate sku-name-display" [title]="item.skuName">
+              {{ item.skuName }}
             </td>
             <td><span class="category-tag">{{ item.category || 'Uncategorized' }}</span></td>
             <td>
@@ -233,7 +202,9 @@
             </td>
             <td class="numeric">{{ item.qtyPerUnit || '-' }}</td>
             <td class="unit">{{ item.unit || '-' }}</td>
-            <td class="numeric">{{ item.materials ? item.materials.length : 0 }}</td>
+            <td class="numeric">{{ item.qtyPerPack || '-' }}</td>
+            <td class="unit">{{ item.unit2 || '-' }}</td>
+            <td class="numeric"><span class="mats-badge">{{ item.materials ? item.materials.length : 0 }}</span></td>
             <td>
               <div class="action-icons">
                 <button class="icon-btn-xs btn-delete" (click)="deleteItem(item.id)" title="Delete">
@@ -244,91 +215,71 @@
           </tr>
 
           <!-- Expanded Details -->
-          @if (expandedRows.has(item.id)) {
-            <tr class="details-row">
-              <td colspan="10">
-                <div class="details-compact">
-                  <div class="details-header">
-                    <h5><i class="fas fa-list"></i> Materials ({{ item.materials ? item.materials.length : 0 }})</h5>
-                    <select class="filter-select" #typeFilter (change)="filterMaterials(item.id, typeFilter.value)">
-                      <option value="">All Types</option>
-                      <option value="pre-mix">Pre-mix</option>
-                      <option value="packaging">Packaging</option>
-                      <option value="meat-veg">Meat & Veg</option>
-                    </select>
-                  </div>
-                  
-                  <div class="materials-grid">
-                    @if (item.materials && getFilteredMaterials(item.id, item.materials).length > 0) {
-                      @for (material of getFilteredMaterials(item.id, item.materials); track $index) {
-                        <div class="material-card" [class.unserved]="material.isUnserved">
-                          <div class="material-header">
-                            <span class="material-name">
-                              @if (material.name && material.name.length > 25) {
-                                {{ material.name | slice:0:25 }}...
-                              } @else {
-                                {{ material.name }}
-                              }
-                            </span>
-                            <span class="material-type">{{ material.type || 'N/A' }}</span>
-                          </div>
-                          <div class="material-details">
-                            <div class="detail">
-                              <label>Required:</label>
-                              <span>{{ material.requiredQty }} {{ material.unit }}</span>
-                            </div>
-                            <div class="detail">
-                              <label>Served:</label>
-                              <input type="number" class="served-input-sm"
-                                     [value]="material.servedQty || 0"
-                                     min="0" [max]="material.requiredQty"
-                                     (change)="updateMaterialServedQty(item.id, $index, $any($event.target).value)">
-                            </div>
-                          </div>
-                          <div class="material-actions">
-                            <input type="text" class="remarks-input-sm"
-                                   [value]="material.remarks || ''"
-                                   placeholder="Remarks"
-                                   (change)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, $any($event.target).value)">
-                            <button class="btn-xs" 
-                                    (click)="updateMaterialServedQty(item.id, $index, material.servedQty || 0, material.remarks)">
-                              <i class="fas fa-save"></i>
-                            </button>
-                          </div>
-                        </div>
-                      }
-                    } @else {
-                      <div class="no-materials">
-                        <i class="fas fa-box-open"></i>
-                        <p>No materials found</p>
-                      </div>
-                    }
-                  </div>
-                  
-                  @if (item.remarks) {
-                    <div class="requisition-remarks">
-                      <strong><i class="fas fa-comment"></i> Remarks:</strong> {{ item.remarks }}
-                    </div>
-                  }
+          <tr *ngIf="expandedRows.has(item.id)" class="details-row">
+            <td colspan="12">
+              <div class="details-compact">
+                <div class="details-header">
+                  <h5><i class="fas fa-list"></i> Materials ({{ item.materials ? item.materials.length : 0 }})</h5>
+                  <select class="filter-select" #typeFilter (change)="filterMaterials(item.id, typeFilter.value)">
+                    <option value="">All Types</option>
+                    <option value="pre-mix">Pre-mix</option>
+                    <option value="packaging">Packaging</option>
+                    <option value="meat-veg">Meat & Veg</option>
+                  </select>
                 </div>
-              </td>
-            </tr>
-          }
-        }
+                
+                <div class="materials-table-container">
+                  <table class="materials-table">
+                    <thead>
+                      <tr>
+                        <th>Raw Material</th>
+                        <th>Qty/Batch</th>
+                        <th>Unit</th>
+                        <th>Type</th>
+                        <th>Total Required</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngIf="item.materials && getFilteredMaterials(item.id, item.materials).length === 0">
+                        <td colspan="5" class="no-materials-cell">
+                          <div class="no-materials">
+                            <i class="fas fa-box-open"></i>
+                            <p>No materials found</p>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr *ngFor="let material of getFilteredMaterials(item.id, item.materials)">
+                        <td class="material-name-cell">
+                          <strong>{{ material.name }}</strong>
+                        </td>
+                        <td class="numeric">{{ material.qty }}</td>
+                        <td class="unit">{{ material.unit || '-' }}</td>
+                        <td>
+                          <span class="material-type-tag">{{ material.type || 'N/A' }}</span>
+                        </td>
+                        <td class="numeric total-required">
+                          <strong>{{ material.requiredQty }} {{ material.unit || '' }}</strong>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </ng-container>
       </tbody>
     </table>
   </div>
 
   <!-- Modern Snackbar -->
-  @if (showSnackbar) {
-    <div class="snackbar" [class]="'snackbar-' + snackbarType">
-      <div class="snackbar-content">
-        <i class="fas" [class]="getSnackbarIcon()"></i>
-        <span class="snackbar-message">{{ snackbarMessage }}</span>
-      </div>
-      <button class="snackbar-close" (click)="hideSnackbar()">
-        <i class="fas fa-times"></i>
-      </button>
+  <div *ngIf="showSnackbar" class="snackbar" [ngClass]="'snackbar-' + snackbarType">
+    <div class="snackbar-content">
+      <i class="fas" [ngClass]="getSnackbarIcon()"></i>
+      <span class="snackbar-message">{{ snackbarMessage }}</span>
     </div>
-  }
+    <button class="snackbar-close" (click)="hideSnackbar()">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
 </div>

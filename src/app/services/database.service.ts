@@ -7,7 +7,10 @@ import {
   RequisitionMaterial, 
   DashboardRequisition,
   UserTable,
-  RawMaterial 
+  RawMaterial,
+  MaterialRequisition,
+  MaterialRequisitionMaterial,
+  POReceipt
 } from '../models/database.model';
 
 @Injectable({
@@ -63,7 +66,6 @@ export class DatabaseService {
     console.log('=== DEBUG: Checking for user duplicates ===');
     
     try {
-      // Check users table first (this doesn't require admin access)
       const { data: dbUsers, error: dbError } = await this.supabase
         .from('users')
         .select('*')
@@ -73,7 +75,6 @@ export class DatabaseService {
         console.log('Database users found:', dbUsers);
       }
       
-      // Try admin API (may fail without service role key)
       try {
         const { data: { users }, error: authError } = await this.supabase.auth.admin.listUsers();
         if (!authError) {
@@ -132,7 +133,6 @@ export class DatabaseService {
 
   private async createUserFromAuth(authUser: any): Promise<User | null> {
     try {
-      // Check if user already exists
       const { data: existingUser } = await this.supabase
         .from('users')
         .select('id')
@@ -167,7 +167,6 @@ export class DatabaseService {
       if (error) {
         console.error('Error creating user profile:', error);
         
-        // If duplicate, try to fetch the existing user
         if (error.code === '23505') {
           const { data: existing } = await this.supabase
             .from('users')
@@ -203,7 +202,6 @@ export class DatabaseService {
 
       console.log('Auth successful, fetching user profile...');
       
-      // Wait a bit to ensure auth is complete
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       const { data: { user: authUser } } = await this.supabase.auth.getUser();
@@ -225,7 +223,6 @@ export class DatabaseService {
         return { user: null, error: profileError };
       }
 
-      // If user profile doesn't exist, create it
       if (!userProfile) {
         console.log('Creating user profile from auth data');
         const newUser = await this.createUserFromAuth(authUser);
@@ -280,11 +277,7 @@ export class DatabaseService {
     }
   }
 
-  // ========== USER CREATION (NEW ADMIN METHOD) ==========
-  /**
-   * Create user using Supabase Admin API (service_role key required)
-   * Bypasses email confirmation entirely — perfect for testing with dummy emails
-   */
+  // ========== USER CREATION ==========
   async createUserAdmin(
     email: string,
     password: string,
@@ -303,7 +296,7 @@ export class DatabaseService {
       const { data, error } = await adminClient.auth.admin.createUser({
         email,
         password,
-        email_confirm: true,                    // Auto-confirms email (no verification needed)
+        email_confirm: true,
         user_metadata: {
           username: metadata.username,
           full_name: metadata.full_name,
@@ -320,7 +313,6 @@ export class DatabaseService {
         return { success: false, error: { message: 'No user returned from admin create' } };
       }
 
-      // Optionally create profile in 'users' table if not auto-created by trigger
       const { error: profileError } = await this.supabase
         .from('users')
         .upsert({
@@ -345,10 +337,8 @@ export class DatabaseService {
     }
   }
 
-  // ========== OLD USER CREATION (kept for backward compatibility) ==========
   async createUserWithAutoConfirm(email: string, password: string, userData: Partial<User>): Promise<{ success: boolean; userId?: string; error?: any }> {
     try {
-      // Validate that username exists
       const username = userData['username'] as string;
       if (!username) {
         return { 
@@ -365,7 +355,6 @@ export class DatabaseService {
       
       console.log('Creating user:', { email, username });
       
-      // First, try to sign up the user in auth
       const { data: authData, error: signUpError } = await this.supabase.auth.signUp({
         email,
         password,
@@ -382,11 +371,9 @@ export class DatabaseService {
       if (signUpError) {
         console.error('Sign up error:', signUpError);
         
-        // If user already exists in auth, try to sign in and check/create profile
         if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
           console.log('User already exists in auth, attempting to sign in...');
           
-          // Try to sign in first
           const { data: signInData, error: signInError } = await this.supabase.auth.signInWithPassword({
             email,
             password
@@ -396,7 +383,6 @@ export class DatabaseService {
             return { success: false, error: signInError };
           }
           
-          // Check if profile already exists
           const { data: existingProfile } = await this.supabase
             .from('users')
             .select('id')
@@ -414,7 +400,6 @@ export class DatabaseService {
             };
           }
           
-          // Create new profile
           const { error: profileError } = await this.supabase
             .from('users')
             .insert([{
@@ -443,10 +428,8 @@ export class DatabaseService {
 
       const userId = authData.user.id;
       
-      // Wait a moment for auth to fully process (and for any database triggers to run)
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // CRITICAL FIX: Check if profile already exists before trying to insert
       const { data: existingProfile, error: checkError } = await this.supabase
         .from('users')
         .select('id')
@@ -455,16 +438,13 @@ export class DatabaseService {
 
       if (checkError) {
         console.error('Error checking for existing profile:', checkError);
-        // Continue with insert attempt
       }
 
-      // If profile already exists (likely created by a database trigger), return success
       if (existingProfile) {
         console.log('User profile already exists (likely created by trigger), returning success.');
         return { success: true, userId: userId };
       }
       
-      // If profile doesn't exist, create it
       const { error: profileError } = await this.supabase
         .from('users')
         .insert([{
@@ -479,13 +459,11 @@ export class DatabaseService {
       if (profileError) {
         console.error('Profile creation error:', profileError);
         
-        // If duplicate key error, profile was created between our check and insert
         if (profileError.code === '23505') {
           console.log('Profile was created concurrently, returning success.');
           return { success: true, userId: userId };
         }
         
-        // Try upsert as fallback
         console.log('Retrying with upsert...');
         const { error: upsertError } = await this.supabase
           .from('users')
@@ -627,7 +605,7 @@ export class DatabaseService {
     }
   }
 
-  // ========== MATERIAL REQUISITION OPERATIONS (UPDATED FOR NEW TABLES) ==========
+  // ========== MATERIAL REQUISITION OPERATIONS ==========
   async createRequisition(
     requisitionData: any, 
     materials: any[] = []
@@ -635,7 +613,6 @@ export class DatabaseService {
     try {
       console.log('Creating requisition in material_requisitions table:', requisitionData);
       
-      // Create requisition in NEW material_requisitions table
       const { data: requisition, error: requisitionError } = await this.supabase
         .from('material_requisitions')
         .insert([{
@@ -651,7 +628,6 @@ export class DatabaseService {
         return { success: false, error: requisitionError };
       }
 
-      // Add materials if provided
       if (materials.length > 0) {
         const formattedMaterials = materials.map(material => ({
           requisition_id: requisition.id,
@@ -676,7 +652,6 @@ export class DatabaseService {
           .insert(formattedMaterials);
 
         if (materialsError) {
-          // Rollback requisition if materials fail
           await this.supabase.from('material_requisitions').delete().eq('id', requisition.id);
           console.error('Materials creation error:', materialsError);
           return { success: false, error: materialsError };
@@ -690,7 +665,7 @@ export class DatabaseService {
     }
   }
 
-  async getTableRequisitions(tableId: string): Promise<any[]> {
+  async getTableRequisitions(tableId: string): Promise<MaterialRequisition[]> {
     try {
       const { data, error } = await this.supabase
         .from('material_requisitions')
@@ -715,7 +690,6 @@ export class DatabaseService {
 
   async deleteRequisition(requisitionId: string): Promise<{ success: boolean; error?: any }> {
     try {
-      // Delete materials first from NEW table
       const { error: materialsError } = await this.supabase
         .from('material_requisition_materials')
         .delete()
@@ -726,7 +700,6 @@ export class DatabaseService {
         return { success: false, error: materialsError };
       }
 
-      // Delete requisition from NEW table
       const { error: requisitionError } = await this.supabase
         .from('material_requisitions')
         .delete()
@@ -744,7 +717,6 @@ export class DatabaseService {
     }
   }
 
-  // ========== NEW REQUISITION UPDATE METHODS ==========
   async updateRequisitionQty(requisitionId: string, qty: number): Promise<{ success: boolean; error?: any }> {
     try {
       const { error } = await this.supabase
@@ -785,7 +757,7 @@ export class DatabaseService {
         served_qty: servedQty,
         updated_at: new Date().toISOString(),
         served_date: new Date().toISOString(),
-        is_unserved: servedQty < 1 // This needs to be calculated based on required_qty
+        is_unserved: servedQty < 1
       };
 
       if (remarks !== undefined) {
@@ -805,7 +777,42 @@ export class DatabaseService {
     }
   }
 
-  // ========== LEGACY REQUISITION OPERATIONS (kept for backward compatibility) ==========
+  // ========== NEW REQUISITION UPDATE METHODS ==========
+  async updateRequisitionDateNeeded(requisitionId: string, dateNeeded?: Date): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          date_needed: dateNeeded ? dateNeeded.toISOString() : null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', requisitionId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateRequisitionDateNeeded:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updateRequisitionBrand(requisitionId: string, brand: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('material_requisitions')
+        .update({
+          brand: brand,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', requisitionId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateRequisitionBrand:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== LEGACY REQUISITION OPERATIONS ==========
   async createLegacyRequisition(
     requisitionData: Omit<Requisition, 'id' | 'created_at' | 'updated_at'>,
     materials: any[],
@@ -1112,9 +1119,25 @@ export class DatabaseService {
     }
   }
 
+  async updateTableDateNeeded(tableId: string, dateNeeded?: Date): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('user_tables')
+        .update({
+          date_needed: dateNeeded ? dateNeeded.toISOString() : null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tableId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updateTableDateNeeded:', error);
+      return { success: false, error };
+    }
+  }
+
   async deleteTable(tableId: string): Promise<{ success: boolean; error?: any }> {
     try {
-      // Get all requisitions for this table
       const { data: requisitions, error: getReqsError } = await this.supabase
         .from('material_requisitions')
         .select('id')
@@ -1124,7 +1147,6 @@ export class DatabaseService {
         console.error('Error getting requisitions for table:', getReqsError);
       }
 
-      // Delete materials for each requisition
       if (requisitions && requisitions.length > 0) {
         const requisitionIds = requisitions.map(r => r.id);
         for (const reqId of requisitionIds) {
@@ -1138,7 +1160,6 @@ export class DatabaseService {
           }
         }
 
-        // Delete requisitions
         const { error: requisitionsError } = await this.supabase
           .from('material_requisitions')
           .delete()
@@ -1150,7 +1171,6 @@ export class DatabaseService {
         }
       }
 
-      // Also delete any legacy requisitions
       const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .delete()
@@ -1160,7 +1180,16 @@ export class DatabaseService {
         console.error('Error deleting legacy table requisitions:', legacyReqsError);
       }
 
-      // Delete table
+      // Delete PO receipts for this table
+      const { error: poReceiptsError } = await this.supabase
+        .from('po_receipts')
+        .delete()
+        .eq('table_id', tableId);
+
+      if (poReceiptsError) {
+        console.error('Error deleting PO receipts:', poReceiptsError);
+      }
+
       const { error: tableError } = await this.supabase
         .from('user_tables')
         .delete()
@@ -1190,7 +1219,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Update material requisitions
       const { error: materialReqsError } = await this.supabase
         .from('material_requisitions')
         .update({
@@ -1206,7 +1234,6 @@ export class DatabaseService {
         console.error('Error updating material requisitions status:', materialReqsError);
       }
 
-      // Update legacy requisitions
       const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -1277,7 +1304,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Update material requisitions
       const { error: materialReqsError } = await this.supabase
         .from('material_requisitions')
         .update({
@@ -1294,7 +1320,6 @@ export class DatabaseService {
         console.error('Error updating material requisitions status:', materialReqsError);
       }
 
-      // Update legacy requisitions
       const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -1336,7 +1361,6 @@ export class DatabaseService {
         return { success: false, error };
       }
 
-      // Update material requisitions
       const { error: materialReqsError } = await this.supabase
         .from('material_requisitions')
         .update({
@@ -1353,7 +1377,6 @@ export class DatabaseService {
         console.error('Error updating material requisitions status:', materialReqsError);
       }
 
-      // Update legacy requisitions
       const { error: legacyReqsError } = await this.supabase
         .from('requisitions')
         .update({
@@ -1386,6 +1409,101 @@ export class DatabaseService {
       return { success: true };
     } catch (error) {
       console.error('Error in updateTableItems:', error);
+      return { success: false, error };
+    }
+  }
+
+  // ========== PO RECEIPT OPERATIONS ==========
+  async getPOReceiptsByTable(tableId: string): Promise<POReceipt[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('po_receipts')
+        .select('*')
+        .eq('table_id', tableId)
+        .order('receipt_date', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching PO receipts:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getPOReceiptsByTable:', error);
+      return [];
+    }
+  }
+
+  async createPOReceipt(poReceiptData: Partial<POReceipt>): Promise<{ success: boolean; receiptId?: string; error?: any }> {
+    try {
+      const { data, error } = await this.supabase
+        .from('po_receipts')
+        .insert([{
+          ...poReceiptData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating PO receipt:', error);
+        return { success: false, error };
+      }
+
+      return { success: true, receiptId: data.id };
+    } catch (error: any) {
+      console.error('Error in createPOReceipt:', error);
+      return { success: false, error };
+    }
+  }
+
+  async updatePOReceipt(receiptId: string, updates: Partial<POReceipt>): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('po_receipts')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', receiptId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in updatePOReceipt:', error);
+      return { success: false, error };
+    }
+  }
+
+  async deletePOReceipt(receiptId: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('po_receipts')
+        .delete()
+        .eq('id', receiptId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in deletePOReceipt:', error);
+      return { success: false, error };
+    }
+  }
+
+  async verifyPOReceipt(receiptId: string, verifiedBy: string): Promise<{ success: boolean; error?: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('po_receipts')
+        .update({
+          status: 'verified',
+          verified_by: verifiedBy,
+          verified_date: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', receiptId);
+
+      return { success: !error, error };
+    } catch (error: any) {
+      console.error('Error in verifyPOReceipt:', error);
       return { success: false, error };
     }
   }

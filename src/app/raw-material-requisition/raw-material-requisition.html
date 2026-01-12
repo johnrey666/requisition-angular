@@ -34,6 +34,11 @@
             </button>
           }
         }
+        
+        <!-- Cut-off Schedule Button -->
+        <button class="btn-sm btn-secondary" (click)="viewCutOffSchedule()" title="Cut-off Schedule">
+          <i class="fas fa-calendar-alt"></i> Schedule
+        </button>
       </div>
     </div>
 
@@ -73,6 +78,11 @@
         <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId || !isTableEditable()" title="Clear Table">
           <i class="fas fa-trash"></i> Clear
         </button>
+        
+        <!-- PO Receipts Button -->
+        <button class="btn-sm btn-info" (click)="viewPOReceipts()" [disabled]="!selectedTableId" title="PO Receipts">
+          <i class="fas fa-receipt"></i> PO Receipts
+        </button>
       </div>
     </div>
   </div>
@@ -100,6 +110,14 @@
     </div>
   }
   
+  <!-- Cut-off Warning -->
+  @if (isPastCutOff()) {
+    <div class="status-bar error">
+      <i class="fas fa-exclamation-triangle"></i>
+      <span>⚠️ Past cut-off schedule! Requisitions submitted now may not be processed until next cycle.</span>
+    </div>
+  }
+  
   <div class="status-bar">
     <span class="stats">
       <i class="fas fa-table"></i> {{ currentTable?.name || 'No table selected' }}
@@ -107,6 +125,11 @@
       <i class="fas fa-list"></i> {{ filteredItems.length }} requisitions
       <span class="divider">•</span>
       <i class="fas fa-database"></i> Auto-saved
+      @if (unservedCount > 0) {
+        <span class="divider">•</span>
+        <i class="fas fa-exclamation-triangle" style="color: #dc3545;"></i>
+        <span style="color: #dc3545;">{{ unservedCount }} unserved</span>
+      }
     </span>
     @if (requisitionItems.length > itemsPerPage) {
       <span class="pagination-mini">
@@ -147,6 +170,7 @@
                       <span>Submitted by: {{ table.submittedBy }}</span>
                       <span>Date: {{ table.submittedDate | date:'medium' }}</span>
                       <span>Items: {{ table.itemCount }}</span>
+                      <span>Date Needed: {{ table.dateNeeded ? (table.dateNeeded | date:'shortDate') : 'Not specified' }}</span>
                     </div>
                   </div>
                   <div class="approval-actions">
@@ -164,6 +188,167 @@
               }
             </div>
           }
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Cut-off Schedule Modal -->
+  @if (showCutOffSchedule) {
+    <div class="modal-overlay" (click)="closeCutOffSchedule()">
+      <div class="modal-content modal-md" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-calendar-alt"></i> Cut-off Schedule</h3>
+          <button type="button" class="modal-close" (click)="closeCutOffSchedule()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="cutoff-info">
+            <h5><i class="fas fa-info-circle"></i> Current Schedule</h5>
+            <div class="schedule-details">
+              <div class="schedule-item">
+                <strong>Perishable Items:</strong>
+                <span>Every Monday & Thursday, 10:00 AM</span>
+              </div>
+              <div class="schedule-item">
+                <strong>Shelf-Stable Items:</strong>
+                <span>Every Wednesday, 2:00 PM</span>
+              </div>
+              <div class="schedule-item">
+                <strong>Next Cut-off:</strong>
+                <span>{{ getNextCutOffDate() | date:'fullDate' }} at {{ getNextCutOffTime() }}</span>
+              </div>
+              <div class="schedule-item">
+                <strong>Delivery Lead Time:</strong>
+                <span>2-3 business days after approval</span>
+              </div>
+            </div>
+            
+            <div class="cutoff-status">
+              <div class="status-indicator" [class.past]="isPastCutOff()" [class.valid]="!isPastCutOff()">
+                <i class="fas" [class.fa-check-circle]="!isPastCutOff()" [class.fa-exclamation-circle]="isPastCutOff()"></i>
+                <span>{{ isPastCutOff() ? 'Past Cut-off Time' : 'Within Cut-off Schedule' }}</span>
+              </div>
+            </div>
+            
+            @if (isAdmin) {
+              <div class="admin-cutoff-controls">
+                <h5><i class="fas fa-cog"></i> Admin Settings</h5>
+                <div class="form-group">
+                  <label>Adjust Cut-off Time (Hours)</label>
+                  <input type="number" [(ngModel)]="cutOffAdjustmentHours" min="-24" max="24" class="form-control">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" (click)="updateCutOffSchedule()">
+                  <i class="fas fa-save"></i> Update Schedule
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- PO Receipts Modal -->
+  @if (showPOReceiptsModal) {
+    <div class="modal-overlay" (click)="closePOReceiptsModal()">
+      <div class="modal-content modal-lg" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3><i class="fas fa-receipt"></i> PO Receipts - {{ currentTable?.name }}</h3>
+          <button type="button" class="modal-close" (click)="closePOReceiptsModal()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="po-receipts-container">
+            <!-- No PO Warning -->
+            <div class="no-po-warning" *ngIf="!hasPOReceipts()">
+              <i class="fas fa-exclamation-triangle"></i>
+              <h5>No PO Receipts Attached</h5>
+              <p>⚠️ <strong>NO PO, NO DELIVERY POLICY:</strong> Materials cannot be delivered without attached PO receipts.</p>
+              <button type="button" class="btn btn-primary" (click)="uploadPOReceipt()">
+                <i class="fas fa-upload"></i> Upload PO Receipt
+              </button>
+            </div>
+            
+            <!-- PO Receipts List -->
+            @if (poReceipts.length > 0) {
+              <div class="po-receipts-list">
+                <h5><i class="fas fa-file-invoice"></i> Attached PO Receipts</h5>
+                <div class="receipts-grid">
+                  @for (receipt of poReceipts; track receipt.id) {
+                    <div class="receipt-card">
+                      <div class="receipt-header">
+                        <div class="receipt-info">
+                          <h6>{{ receipt.poNumber }}</h6>
+                          <span class="receipt-date">{{ receipt.receiptDate | date:'shortDate' }}</span>
+                        </div>
+                        <span class="receipt-status" [class]="receipt.status">
+                          {{ receipt.status === 'verified' ? 'Verified' : 'Pending' }}
+                        </span>
+                      </div>
+                      <div class="receipt-details">
+                        <div class="detail">
+                          <strong>Supplier:</strong> {{ receipt.supplier }}
+                        </div>
+                        <div class="detail">
+                          <strong>Amount:</strong> {{ receipt.amount | currency:'PHP' }}
+                        </div>
+                        <div class="detail">
+                          <strong>Items:</strong> {{ receipt.itemCount }}
+                        </div>
+                        @if (receipt.remarks) {
+                          <div class="detail">
+                            <strong>Remarks:</strong> {{ receipt.remarks }}
+                          </div>
+                        }
+                      </div>
+                      <div class="receipt-actions">
+                        <button type="button" class="btn-xs btn-primary" (click)="viewReceiptFile(receipt)">
+                          <i class="fas fa-eye"></i> View
+                        </button>
+                        <button type="button" class="btn-xs btn-secondary" (click)="downloadReceipt(receipt)">
+                          <i class="fas fa-download"></i> Download
+                        </button>
+                        @if (isAdmin) {
+                          <button type="button" class="btn-xs btn-success" 
+                                  [disabled]="receipt.status === 'verified'"
+                                  (click)="verifyReceipt(receipt.id)">
+                            <i class="fas fa-check"></i> Verify
+                          </button>
+                        }
+                        <button type="button" class="btn-xs btn-danger" (click)="deleteReceipt(receipt.id)">
+                          <i class="fas fa-trash"></i> Delete
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+            
+            <!-- Upload Area -->
+            <div class="upload-area" *ngIf="!isUploading">
+              <div class="upload-zone" (click)="fileInput.click()" [class.drag-over]="isDragOver"
+                   (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <h5>Upload PO Receipt</h5>
+                <p>Drag & drop files or click to browse</p>
+                <p class="file-types">Supported: PDF, JPG, PNG (Max: 10MB)</p>
+                <input #fileInput type="file" (change)="onFileSelected($event)" multiple accept=".pdf,.jpg,.jpeg,.png" hidden>
+              </div>
+            </div>
+            
+            @if (isUploading) {
+              <div class="upload-progress">
+                <div class="progress">
+                  <div class="progress-bar" [style.width.%]="uploadProgress"></div>
+                </div>
+                <p>Uploading... {{ uploadProgress }}%</p>
+              </div>
+            }
+          </div>
         </div>
       </div>
     </div>
@@ -199,6 +384,14 @@
       
       <div class="filter-group">
         <input type="date" formControlName="dateTo" class="filter-date" placeholder="To Date">
+      </div>
+      
+      <!-- Unserved Filter -->
+      <div class="filter-group">
+        <select formControlName="unservedOnly" class="filter-select">
+          <option value="false">All Materials</option>
+          <option value="true">Unserved Only</option>
+        </select>
       </div>
       
       <button type="button" class="btn-sm btn-secondary" (click)="filterForm.reset()">
@@ -287,6 +480,13 @@
             </div>
           </div>
 
+          <!-- Date Needed -->
+          <div class="form-group">
+            <label>Date Needed (Optional)</label>
+            <input type="date" class="form-control" formControlName="dateNeeded" [min]="minDateNeeded">
+            <small class="text-muted">Leave empty for ASAP delivery</small>
+          </div>
+
           <!-- Supplier -->
           <div class="form-group">
             <label>Supplier *</label>
@@ -357,10 +557,32 @@
                 <span *ngIf="!selectedTableId">• No table selected</span>
                 <span *ngIf="!isTableEditable()">• Table is not editable</span>
                 <span *ngIf="requisitionForm.invalid">• Form has validation errors</span>
+                <span *ngIf="isPastCutOff()">• Past cut-off schedule</span>
+                <span *ngIf="!hasPOReceipts() && currentTable?.status === 'approved'">• No PO receipts attached</span>
               </small>
             </div>
           </div>
         </form>
+      </div>
+      
+      <!-- Cut-off Info Panel -->
+      <div class="cutoff-info-panel">
+        <h4><i class="fas fa-clock"></i> Cut-off Schedule</h4>
+        <div class="cutoff-details">
+          <div class="cutoff-item" [class.active]="requisitionForm.get('requisitionType')?.value === 'perishable'">
+            <strong>Perishable:</strong> Mon & Thu, 10:00 AM
+          </div>
+          <div class="cutoff-item" [class.active]="requisitionForm.get('requisitionType')?.value === 'shelf-stable'">
+            <strong>Shelf-Stable:</strong> Wed, 2:00 PM
+          </div>
+          <div class="cutoff-time">
+            <strong>Next Cut-off:</strong> {{ getNextCutOffDate() | date:'shortDate' }}
+          </div>
+        </div>
+        <div class="cutoff-status" [class.past]="isPastCutOff()">
+          <i class="fas" [class.fa-check]="!isPastCutOff()" [class.fa-exclamation-triangle]="isPastCutOff()"></i>
+          <span>{{ isPastCutOff() ? 'Past Cut-off Time' : 'Within Schedule' }}</span>
+        </div>
       </div>
     </div>
 
@@ -371,6 +593,16 @@
           <h3><i class="fas fa-clipboard-list"></i> Material Requisitions</h3>
           <div class="table-info">
             <span class="total-count">{{ requisitionItems.length }} total</span>
+            @if (unservedCount > 0) {
+              <span class="unserved-count">
+                <i class="fas fa-exclamation-triangle"></i> {{ unservedCount }} unserved
+              </span>
+            }
+            @if (!hasPOReceipts() && currentTable?.status === 'approved') {
+              <span class="po-warning">
+                <i class="fas fa-exclamation-circle"></i> No PO Receipts
+              </span>
+            }
           </div>
         </div>
 
@@ -381,6 +613,7 @@
                 <th style="width:40px;"></th>
                 <th class="sortable" (click)="sortBy('requisitionNumber')">Req #</th>
                 <th class="sortable" (click)="sortBy('type')">Type</th>
+                <th class="sortable" (click)="sortBy('dateNeeded')">Date Needed</th>
                 <th class="sortable" (click)="sortBy('skuCode')">SKU Code</th>
                 <th class="sortable" (click)="sortBy('skuName')">SKU Name</th>
                 <th class="sortable" (click)="sortBy('qtyNeeded')">Qty</th>
@@ -394,7 +627,7 @@
             <tbody>
               @if (filteredItems.length === 0) {
                 <tr>
-                  <td colspan="11">
+                  <td colspan="12">
                     <div class="empty-state">
                       <i class="fas fa-inbox"></i>
                       <p>{{ searchQuery || filterForm.value.status || filterForm.value.type ? 'No matching requisitions found' : 'No requisitions added yet' }}</p>
@@ -402,6 +635,8 @@
                         <p class="empty-hint">Select or create a table to start adding requisitions</p>
                       } @else if (currentTable?.status !== 'draft') {
                         <p class="empty-hint">Table is {{ currentTable?.status }}, cannot add new requisitions</p>
+                      } @else if (isPastCutOff()) {
+                        <p class="empty-hint">Past cut-off schedule. Requisitions will be processed next cycle.</p>
                       }
                     </div>
                   </td>
@@ -409,7 +644,7 @@
               }
 
               @for (item of filteredItems; track item.id) {
-                <tr [class.expanded]="expandedRows.has(item.id)">
+                <tr [class.expanded]="expandedRows.has(item.id)" [class.has-unserved]="hasUnservedMaterials(item)">
                   <td>
                     <button type="button" class="toggle-btn" (click)="toggleRow(item.id)">
                       <i class="fas" [class.fa-chevron-up]="expandedRows.has(item.id)" [class.fa-chevron-down]="!expandedRows.has(item.id)"></i>
@@ -420,6 +655,18 @@
                     <span class="type-badge" [class]="item.type">
                       {{ item.type === 'perishable' ? 'Perishable' : 'Shelf-Stable' }}
                     </span>
+                  </td>
+                  <td>
+                    @if (item.dateNeeded) {
+                      <span class="date-needed" [class.past-due]="isDatePastDue(item.dateNeeded)">
+                        {{ item.dateNeeded | date:'shortDate' }}
+                        @if (isDatePastDue(item.dateNeeded)) {
+                          <i class="fas fa-exclamation-triangle" title="Past due"></i>
+                        }
+                      </span>
+                    } @else {
+                      <span class="text-muted">ASAP</span>
+                    }
                   </td>
                   <td><code>{{ item.skuCode }}</code></td>
                   <td>{{ item.skuName }}</td>
@@ -439,7 +686,14 @@
                       }}
                     </span>
                   </td>
-                  <td class="numeric">{{ item.materials.length }}</td>
+                  <td class="numeric">
+                    {{ item.materials.length }}
+                    @if (hasUnservedMaterials(item)) {
+                      <span class="unserved-indicator" title="Has unserved materials">
+                        <i class="fas fa-exclamation-circle"></i>
+                      </span>
+                    }
+                  </td>
                   <td>
                     <div class="action-buttons">
                       <button type="button" class="btn-icon btn-sm btn-primary" (click)="openAddMaterialModal(item.id)" 
@@ -457,7 +711,7 @@
                 <!-- Expanded Details -->
                 @if (expandedRows.has(item.id)) {
                   <tr class="details-row">
-                    <td colspan="11">
+                    <td colspan="12">
                       <div class="details-content">
                         <!-- Materials List -->
                         <div class="materials-section">
@@ -471,7 +725,12 @@
                           } @else {
                             <div class="materials-grid">
                               @for (material of item.materials; track material.id) {
-                                <div class="material-card" [class]="material.status">
+                                <div class="material-card" [class]="material.status" [class.unserved]="material.isUnserved">
+                                  @if (material.isUnserved) {
+                                    <div class="unserved-flag">
+                                      <i class="fas fa-exclamation-triangle"></i> Unserved
+                                    </div>
+                                  }
                                   <div class="material-header">
                                     <div class="material-title">
                                       <h6>{{ material.name }}</h6>
@@ -511,7 +770,8 @@
                                                [value]="material.servedQty || 0"
                                                min="0" [max]="material.requiredQty"
                                                (change)="updateMaterialServedQty(item.id, material.id, $any($event.target).value)"
-                                               [disabled]="!isTableEditable()">
+                                               [disabled]="!isTableEditable()"
+                                               [class.unserved-input]="material.isUnserved">
                                         <span class="unit-label">{{ material.unit }}</span>
                                         @if (material.servedDate) {
                                           <span class="served-date">
@@ -520,6 +780,12 @@
                                           </span>
                                         }
                                       </div>
+                                      @if (material.isUnserved) {
+                                        <div class="unserved-warning">
+                                          <i class="fas fa-exclamation-triangle"></i>
+                                          <span>Material not fully served</span>
+                                        </div>
+                                      }
                                     </div>
                                     
                                     @if (material.remarks) {
@@ -545,6 +811,30 @@
                         @if (item.remarks) {
                           <div class="requisition-remarks">
                             <strong><i class="fas fa-comment"></i> Requisition Remarks:</strong> {{ item.remarks }}
+                          </div>
+                        }
+                        
+                        <!-- PO Receipts for this requisition -->
+                        @if (item.status === 'approved') {
+                          <div class="po-receipts-section">
+                            <h6><i class="fas fa-receipt"></i> PO Receipts</h6>
+                            @if (getPOReceiptsForRequisition(item.id).length === 0) {
+                              <div class="no-po-warning-small">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <span>No PO receipts attached - Delivery may be delayed</span>
+                              </div>
+                            } @else {
+                              <div class="po-receipts-mini">
+                                @for (receipt of getPOReceiptsForRequisition(item.id); track receipt.id) {
+                                  <span class="po-badge" [class.verified]="receipt.status === 'verified'">
+                                    {{ receipt.poNumber }}
+                                    @if (receipt.status === 'verified') {
+                                      <i class="fas fa-check"></i>
+                                    }
+                                  </span>
+                                }
+                              </div>
+                            }
                           </div>
                         }
                       </div>
