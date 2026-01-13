@@ -1,0 +1,225 @@
+<div class="report-container">
+  <div class="header">
+    <h1><i class="fas fa-chart-bar"></i> Raw Material Usage Report</h1>
+    <p>View aggregated material usage across production tables</p>
+  </div>
+
+  <!-- Controls -->
+  <div class="report-controls">
+    <!-- Table Selection -->
+    <div class="table-filter">
+      <label for="tableFilter"><i class="fas fa-table"></i> Filter by Table:</label>
+      <select id="tableFilter" [(ngModel)]="selectedTableId" (change)="loadUsageData()" class="form-select">
+        <option value="all">All Tables</option>
+        <option *ngFor="let table of userTables" [value]="table.id">{{ table.name }} ({{ table.item_count || 0 }} items)</option>
+      </select>
+    </div>
+
+    <!-- Refresh Button -->
+    <div class="refresh-controls">
+      <button class="refresh-btn" (click)="loadUsageData()" [disabled]="isLoading">
+        <i class="fas fa-sync-alt" [class.fa-spin]="isLoading"></i> Refresh
+      </button>
+    </div>
+
+    <!-- Export Button -->
+    <div class="export-controls">
+      <button class="export-btn" (click)="exportToExcel()" [disabled]="usageData.length === 0 || isLoading">
+        <i class="fas fa-file-excel"></i> Export to Excel
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>Loading usage data...</p>
+  </div>
+
+  <!-- Empty State -->
+  <div *ngIf="!isLoading && usageData.length === 0" class="empty-state">
+    <i class="fas fa-box-open"></i>
+    <h3>No Usage Data Found</h3>
+    <p>No material usage data available for the selected criteria.</p>
+    <p *ngIf="selectedTableId === 'all'">Try selecting a specific table or adding requisitions to tables.</p>
+    <button class="btn-refresh" (click)="loadUsageData()">
+      <i class="fas fa-sync-alt"></i> Try Again
+    </button>
+  </div>
+
+  <!-- Summary Stats -->
+  <div *ngIf="!isLoading && usageData.length > 0" class="summary-stats">
+    <div class="stat-card">
+      <div class="stat-icon">
+        <i class="fas fa-cube"></i>
+      </div>
+      <div class="stat-info">
+        <h3>{{ totalMaterials }}</h3>
+        <p>Unique Materials</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">
+        <i class="fas fa-balance-scale"></i>
+      </div>
+      <div class="stat-info">
+        <h3>{{ totalQuantity | number:'1.2-2' }}</h3>
+        <p>Total Quantity</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">
+        <i class="fas fa-boxes"></i>
+      </div>
+      <div class="stat-info">
+        <h3>{{ totalTables }}</h3>
+        <p>Tables Included</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">
+        <i class="fas fa-chart-line"></i>
+      </div>
+      <div class="stat-info">
+        <h3>{{ usageData.length }}</h3>
+        <p>Total Records</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Report Table -->
+  <div *ngIf="!isLoading && usageData.length > 0" class="report-table-container">
+    <div class="table-header">
+      <h3><i class="fas fa-list"></i> Material Usage Summary</h3>
+      <span class="table-info">Showing {{ paginatedData.length }} of {{ usageData.length }} materials</span>
+    </div>
+    
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th class="sortable" (click)="sortData('material_name')">
+            Raw Material
+            <i class="fas" [class.fa-sort-up]="sortField === 'material_name' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'material_name' && !sortAsc"></i>
+          </th>
+          <th class="sortable" (click)="sortData('material_type')">
+            Type
+            <i class="fas" [class.fa-sort-up]="sortField === 'material_type' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'material_type' && !sortAsc"></i>
+          </th>
+          <th class="sortable" (click)="sortData('unit')">
+            Unit
+            <i class="fas" [class.fa-sort-up]="sortField === 'unit' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'unit' && !sortAsc"></i>
+          </th>
+          <th class="sortable" (click)="sortData('total_quantity')">
+            Total Required
+            <i class="fas" [class.fa-sort-up]="sortField === 'total_quantity' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'total_quantity' && !sortAsc"></i>
+          </th>
+          <th class="sortable" (click)="sortData('table_count')">
+            Tables
+            <i class="fas" [class.fa-sort-up]="sortField === 'table_count' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'table_count' && !sortAsc"></i>
+          </th>
+          <th class="sortable" (click)="sortData('sku_count')">
+            SKUs
+            <i class="fas" [class.fa-sort-up]="sortField === 'sku_count' && sortAsc" 
+               [class.fa-sort-down]="sortField === 'sku_count' && !sortAsc"></i>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let item of paginatedData">
+          <td class="material-name">
+            <strong>{{ item.material_name }}</strong>
+          </td>
+          <td>
+            <span class="type-badge" [ngClass]="getTypeClass(item.material_type)">
+              {{ item.material_type }}
+            </span>
+          </td>
+          <td class="unit-column">{{ item.unit }}</td>
+          <td class="quantity-column">
+            <span class="total-quantity">{{ item.total_quantity | number:'1.2-2' }}</span>
+          </td>
+          <td>
+            <span class="table-count">{{ item.table_count }}</span>
+            <div class="table-tooltip" *ngIf="item.tables.length > 0" [title]="item.tables.join(', ')">
+              <i class="fas fa-info-circle"></i>
+            </div>
+          </td>
+          <td>
+            <span class="sku-count">{{ item.sku_count }}</span>
+            <div class="sku-tooltip" *ngIf="item.skus.length > 0" [title]="item.skus.join('\n')">
+              <i class="fas fa-info-circle"></i>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div *ngIf="totalPages > 1" class="pagination">
+      <button class="pagination-btn" (click)="previousPage()" [disabled]="currentPage === 1">
+        <i class="fas fa-chevron-left"></i>
+      </button>
+      <span class="page-info">
+        Page {{ currentPage }} of {{ totalPages }}
+        <span class="item-count">({{ usageData.length }} items)</span>
+      </span>
+      <button class="pagination-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Detailed Breakdown -->
+  <div *ngIf="!isLoading && usageData.length > 0" class="breakdown-container">
+    <div class="breakdown-header">
+      <h3><i class="fas fa-chart-pie"></i> Breakdown by Material Type</h3>
+      <span class="breakdown-info">{{ typeBreakdown.length }} categories</span>
+    </div>
+    
+    <div class="type-breakdown">
+      <table class="type-table">
+        <thead>
+          <tr>
+            <th>Material Type</th>
+            <th>Materials</th>
+            <th>Total Quantity</th>
+            <th>% of Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let breakdown of typeBreakdown">
+            <td>
+              <span class="type-badge" [ngClass]="getTypeClass(breakdown.type)">
+                {{ breakdown.type }}
+              </span>
+            </td>
+            <td>{{ breakdown.material_count }}</td>
+            <td>{{ breakdown.total_quantity | number:'1.2-2' }}</td>
+            <td>
+              <div class="percentage-bar">
+                <div class="percentage-fill" [style.width.%]="breakdown.percentage"></div>
+                <span>{{ breakdown.percentage | number:'1.0-1' }}%</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Snackbar -->
+  <div *ngIf="showSnackbar" class="snackbar" [ngClass]="'snackbar-' + snackbarType">
+    <div class="snackbar-content">
+      <i class="fas" [ngClass]="getSnackbarIcon()"></i>
+      <span class="snackbar-message">{{ snackbarMessage }}</span>
+    </div>
+    <button class="snackbar-close" (click)="hideSnackbar()">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+</div>

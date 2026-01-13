@@ -1635,4 +1635,207 @@ export class DatabaseService {
       return { success: false, error };
     }
   }
+  // ========== USAGE REPORT OPERATIONS ==========
+async getAllUserRequisitions(userId: string): Promise<MaterialRequisition[]> {
+  try {
+    const { data, error } = await this.supabase
+      .from('material_requisitions')
+      .select(`
+        *,
+        materials:material_requisition_materials(*)
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Get all user requisitions error:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Get all user requisitions exception:', error);
+    return [];
+  }
 }
+
+async getRequisitionMaterials(requisitionId: string): Promise<MaterialRequisitionMaterial[]> {
+  try {
+    const { data, error } = await this.supabase
+      .from('material_requisition_materials')
+      .select('*')
+      .eq('requisition_id', requisitionId)
+      .order('material_name', { ascending: true });
+
+    if (error) {
+      console.error('Get requisition materials error:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Get requisition materials exception:', error);
+    return [];
+  }
+}
+
+async getAggregatedUsageData(userId: string, tableId?: string, startDate?: Date, endDate?: Date): Promise<any[]> {
+  try {
+    let query = this.supabase
+      .from('material_requisitions')
+      .select(`
+        id,
+        table_id,
+        user_tables!inner(name),
+        sku_name,
+        materials:material_requisition_materials(
+          material_name,
+          type,
+          unit,
+          required_qty,
+          qty_per_batch
+        )
+      `)
+      .eq('user_id', userId);
+
+    // Filter by table if specified
+    if (tableId && tableId !== 'all') {
+      query = query.eq('table_id', tableId);
+    }
+
+    // Filter by date range if specified
+    if (startDate) {
+      query = query.gte('created_at', startDate.toISOString());
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Get aggregated usage data error:', error);
+      return [];
+    }
+
+    // Process and aggregate the data
+    const aggregatedData = this.aggregateUsageData(data || []);
+    return aggregatedData;
+  } catch (error) {
+    console.error('Get aggregated usage data exception:', error);
+    return [];
+  }
+}
+
+private aggregateUsageData(requisitions: any[]): any[] {
+  const materialMap = new Map<string, {
+    material_name: string;
+    material_type: string;
+    unit: string;
+    total_quantity: number;
+    tables: Set<string>;
+    skus: Set<string>;
+  }>();
+
+  for (const req of requisitions) {
+    const tableName = req.user_tables?.name || `Table ${req.table_id?.substring(0, 8)}`;
+    const skuName = req.sku_name || 'Unknown SKU';
+    
+    for (const material of req.materials || []) {
+      const key = `${material.material_name}|${material.unit}`.toLowerCase();
+      
+      if (!materialMap.has(key)) {
+        materialMap.set(key, {
+          material_name: material.material_name,
+          material_type: material.type || 'Other',
+          unit: material.unit || '',
+          total_quantity: 0,
+          tables: new Set<string>(),
+          skus: new Set<string>()
+        });
+      }
+      
+      const materialData = materialMap.get(key)!;
+      materialData.total_quantity += material.required_qty || 0;
+      materialData.tables.add(tableName);
+      materialData.skus.add(skuName);
+    }
+  }
+
+  // Convert map to array and format
+  return Array.from(materialMap.values()).map(item => ({
+    material_name: item.material_name,
+    material_type: item.material_type,
+    unit: item.unit,
+    total_quantity: item.total_quantity,
+    table_count: item.tables.size,
+    sku_count: item.skus.size,
+    tables: Array.from(item.tables),
+    skus: Array.from(item.skus)
+  }));
+}
+// Add this method to your existing DatabaseService class
+async debugCheckRequisitions(): Promise<void> {
+  console.log('=== DEBUG: Checking requisitions in database ===');
+  try {
+    const { data: requisitions, error } = await this.supabase
+      .from('material_requisitions')
+      .select('*')
+      .limit(20);
+
+    if (error) {
+      console.error('Error checking requisitions:', error);
+    } else {
+      console.log(`Found ${requisitions?.length || 0} requisitions in database:`, requisitions);
+    }
+
+    const { data: materials, error: materialsError } = await this.supabase
+      .from('material_requisition_materials')
+      .select('*')
+      .limit(20);
+
+    if (materialsError) {
+      console.error('Error checking materials:', materialsError);
+    } else {
+      console.log(`Found ${materials?.length || 0} materials in database:`, materials);
+    }
+  } catch (error) {
+    console.error('Debug check error:', error);
+  }
+}
+
+// Also add this method to help debug the usage report
+async debugCheckUserData(userId: string): Promise<void> {
+  console.log(`=== DEBUG: Checking data for user ${userId} ===`);
+  try {
+    const { data: tables, error: tablesError } = await this.supabase
+      .from('user_tables')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (tablesError) {
+      console.error('Error checking user tables:', tablesError);
+    } else {
+      console.log(`Found ${tables?.length || 0} tables for user:`, tables);
+      
+      // Check requisitions for each table
+      for (const table of tables || []) {
+        const { data: requisitions, error: reqError } = await this.supabase
+          .from('material_requisitions')
+          .select('*, materials:material_requisition_materials(*)')
+          .eq('table_id', table.id)
+          .eq('user_id', userId);
+
+        if (reqError) {
+          console.error(`Error checking requisitions for table ${table.name}:`, reqError);
+        } else {
+          console.log(`Found ${requisitions?.length || 0} requisitions for table ${table.name}:`, requisitions);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Debug check error:', error);
+  }
+}
+}
+

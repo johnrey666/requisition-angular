@@ -416,16 +416,26 @@ export class DailyProductionComponent implements OnInit {
       unit2: skuInfo['UNIT2'] || '',
       materials: materials,
       tableId: this.selectedTableId,
-      userId: this.currentUser.id, // Add user ID for filtering
+      userId: this.currentUser.id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    // Add to local array
+    console.log('Adding new requisition item:', newItem);
+
+    // Add to local array FIRST
     this.requisitionItems.push(newItem);
     
     // Save to database
-    await this.saveRequisitionToDatabase(newItem);
+    const dbResult = await this.saveRequisitionToDatabase(newItem);
+    
+    if (dbResult.success && dbResult.requisitionId) {
+      // Update the local item with the database ID
+      const itemIndex = this.requisitionItems.findIndex(i => i.id === newItem.id);
+      if (itemIndex !== -1) {
+        this.requisitionItems[itemIndex].dbId = dbResult.requisitionId;
+      }
+    }
     
     // Update table item count
     await this.updateTableItemCount();
@@ -435,6 +445,7 @@ export class DailyProductionComponent implements OnInit {
     
     this.showSnackbarMessage(`${newItem.skuName} (${newItem.skuCode}) added!`, 'success');
 
+    // Reset form
     this.requisitionForm.reset({
       category: '',
       sku: '',
@@ -443,50 +454,64 @@ export class DailyProductionComponent implements OnInit {
       supplier: ''
     });
 
+    // Update UI
     this.currentPage = Math.ceil(this.requisitionItems.length / this.itemsPerPage);
     this.filterAndPaginate();
     this.cdRef.detectChanges();
   }
 
-  private async saveRequisitionToDatabase(item: any): Promise<void> {
+  private async saveRequisitionToDatabase(item: any): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
     try {
-      if (!this.currentUser || !this.selectedTableId) return;
+      if (!this.currentUser || !this.selectedTableId) {
+        return { success: false, error: 'No user or table selected' };
+      }
+
+      console.log('Saving requisition to database for user:', this.currentUser.id);
 
       const requisitionData = {
         user_id: this.currentUser.id,
         table_id: this.selectedTableId,
-        sku_code: item.skuCode,
-        sku_name: item.skuName,
-        category: item.category,
-        qty_needed: item.qtyNeeded,
-        supplier: item.supplier,
-        qty_per_unit: item.qtyPerUnit,
-        unit: item.unit,
-        qty_per_pack: item.qtyPerPack,
-        pack_unit: item.unit2,
+        sku_code: item.skuCode || '',
+        sku_name: item.skuName || '',
+        category: item.category || '',
+        qty_needed: item.qtyNeeded || 1,
+        supplier: item.supplier || '',
+        qty_per_unit: item.qtyPerUnit || '',
+        unit: item.unit || '',
+        qty_per_pack: item.qtyPerPack || '',
+        pack_unit: item.unit2 || '',
         status: 'draft'
       };
 
+      console.log('Requisition data:', requisitionData);
+
       const formattedMaterials = item.materials.map((material: any) => ({
-        material_name: material.name,
+        material_name: material.name || '',
         type: material.type || 'raw-material',
-        qty_per_batch: material.qty,
-        unit: material.unit || 'kg',
-        required_qty: material.requiredQty,
+        qty_per_batch: material.qty || 0,
+        unit: material.unit || '',
+        required_qty: material.requiredQty || 0,
         served_qty: 0,
         brand: '',
         supplier: item.supplier || '',
         status: 'pending'
       }));
 
+      console.log('Materials data:', formattedMaterials);
+
+      // Call database service
       const result = await this.dbService.createRequisition(requisitionData, formattedMaterials);
       
-      if (!result.success) {
+      if (result.success) {
+        console.log('Successfully saved to database with ID:', result.requisitionId);
+        return { success: true, requisitionId: result.requisitionId };
+      } else {
         console.error('Failed to save requisition to database:', result.error);
-        this.showSnackbarMessage('Failed to save to database', 'error');
+        return { success: false, error: result.error };
       }
     } catch (error) {
       console.error('Error saving requisition to database:', error);
+      return { success: false, error };
     }
   }
 
@@ -500,25 +525,15 @@ export class DailyProductionComponent implements OnInit {
       item.updatedAt = new Date().toISOString();
 
       // Update in database
-      await this.updateRequisitionInDatabase(itemId, { qtyNeeded: qty });
+      if (item.dbId) {
+        const result = await this.dbService.updateRequisitionQty(item.dbId, qty);
+        if (!result.success) {
+          console.error('Failed to update requisition quantity in database:', result.error);
+        }
+      }
       
       await this.saveToLocalStorage();
       this.filterAndPaginate();
-    }
-  }
-
-  private async updateRequisitionInDatabase(itemId: string, updates: any): Promise<void> {
-    try {
-      // Find the database ID if available
-      const item = this.requisitionItems.find(i => i.id === itemId);
-      if (item && item.dbId) {
-        const result = await this.dbService.updateRequisitionQty(item.dbId, updates.qtyNeeded);
-        if (!result.success) {
-          console.error('Failed to update requisition in database:', result.error);
-        }
-      }
-    } catch (error) {
-      console.error('Error updating requisition in database:', error);
     }
   }
 
@@ -529,23 +544,14 @@ export class DailyProductionComponent implements OnInit {
       item.updatedAt = new Date().toISOString();
 
       // Update in database
-      await this.updateSupplierInDatabase(itemId, supplier);
-      
-      await this.saveToLocalStorage();
-    }
-  }
-
-  private async updateSupplierInDatabase(itemId: string, supplier: string): Promise<void> {
-    try {
-      const item = this.requisitionItems.find(i => i.id === itemId);
-      if (item && item.dbId) {
+      if (item.dbId) {
         const result = await this.dbService.updateRequisitionSupplier(item.dbId, supplier);
         if (!result.success) {
           console.error('Failed to update supplier in database:', result.error);
         }
       }
-    } catch (error) {
-      console.error('Error updating supplier in database:', error);
+      
+      await this.saveToLocalStorage();
     }
   }
 
@@ -558,7 +564,10 @@ export class DailyProductionComponent implements OnInit {
         
         // Delete from database
         if (removedItem.dbId) {
-          await this.deleteRequisitionFromDatabase(removedItem.dbId);
+          const result = await this.dbService.deleteRequisition(removedItem.dbId);
+          if (!result.success) {
+            console.error('Failed to delete requisition from database:', result.error);
+          }
         }
         
         // Remove from local array
@@ -571,17 +580,6 @@ export class DailyProductionComponent implements OnInit {
         this.filterAndPaginate();
         this.showSnackbarMessage(`${removedName} removed`, 'success');
       }
-    }
-  }
-
-  private async deleteRequisitionFromDatabase(dbId: string): Promise<void> {
-    try {
-      const result = await this.dbService.deleteRequisition(dbId);
-      if (!result.success) {
-        console.error('Failed to delete requisition from database:', result.error);
-      }
-    } catch (error) {
-      console.error('Error deleting requisition from database:', error);
     }
   }
 
@@ -912,7 +910,7 @@ export class DailyProductionComponent implements OnInit {
       // Delete from database
       for (const item of itemsToDelete) {
         if (item.dbId) {
-          await this.deleteRequisitionFromDatabase(item.dbId);
+          await this.dbService.deleteRequisition(item.dbId);
         }
       }
       
@@ -1038,48 +1036,49 @@ export class DailyProductionComponent implements OnInit {
     try {
       if (!this.currentUser) return;
       
+      // Clear existing items to avoid duplicates
+      this.requisitionItems = [];
+      
       // Get all tables for user
       for (const table of this.userTables) {
+        console.log('Loading requisitions for table:', table.name);
         const requisitions = await this.dbService.getTableRequisitions(table.id);
+        console.log(`Found ${requisitions.length} requisitions for table ${table.name}`);
         
         // Convert database requisitions to local format
         requisitions.forEach((req: any) => {
-          // Check if this requisition is already in local array
-          const existingIndex = this.requisitionItems.findIndex(
-            i => i.dbId === req.id && i.userId === this.currentUser?.id
-          );
-          
-          if (existingIndex === -1 && req.user_id === this.currentUser?.id) {
+          if (req.user_id === this.currentUser?.id) {
             const materials = req.materials?.map((m: any) => ({
-              name: m.material_name,
-              qty: m.qty_per_batch,
-              unit: m.unit,
-              type: m.type,
-              requiredQty: m.required_qty
+              name: m.material_name || '',
+              qty: m.qty_per_batch || 0,
+              unit: m.unit || '',
+              type: m.type || '',
+              requiredQty: m.required_qty || 0
             })) || [];
             
             this.requisitionItems.push({
               id: this.generateId(),
-              dbId: req.id,
-              skuCode: req.sku_code,
-              skuName: req.sku_name,
-              category: req.category,
-              qtyNeeded: req.qty_needed,
-              supplier: req.supplier,
-              qtyPerUnit: req.qty_per_unit,
-              unit: req.unit,
-              qtyPerPack: req.qty_per_pack,
-              pack_unit: req.pack_unit,
+              dbId: req.id, // Store the database ID
+              skuCode: req.sku_code || '',
+              skuName: req.sku_name || '',
+              category: req.category || '',
+              qtyNeeded: req.qty_needed || 1,
+              supplier: req.supplier || '',
+              qtyPerUnit: req.qty_per_unit || '',
+              unit: req.unit || '',
+              qtyPerPack: req.qty_per_pack || '',
+              pack_unit: req.pack_unit || '',
               materials: materials,
               tableId: req.table_id,
               userId: req.user_id,
-              createdAt: req.created_at,
-              updatedAt: req.updated_at
+              createdAt: req.created_at || new Date().toISOString(),
+              updatedAt: req.updated_at || new Date().toISOString()
             });
           }
         });
       }
       
+      console.log(`Loaded ${this.requisitionItems.length} requisitions from database`);
       await this.saveToLocalStorage();
     } catch (error) {
       console.error('Error loading requisitions from database:', error);
