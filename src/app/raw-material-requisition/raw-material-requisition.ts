@@ -5,13 +5,7 @@ import { CommonModule } from '@angular/common';
 import * as XLSX from 'xlsx';
 import { DatabaseService } from '../services/database.service';
 import { SupabaseService } from '../services/supabase.service';
-import { 
-  MasterData, 
-  UserTable, 
-  MaterialRequisition as DBMaterialRequisition,
-  MaterialRequisitionMaterial,
-  POReceipt as DBPOReceipt 
-} from '../models/database.model';
+import { MasterData, UserTable, MaterialRequisition as DBMaterialRequisition, MaterialRequisitionMaterial, POReceipt as DBPOReceipt } from '../models/database.model';
 
 declare function saveAs(data: any, filename?: string, options?: any): void;
 
@@ -99,14 +93,8 @@ interface POReceipt {
 }
 
 interface CutOffSchedule {
-  perishable: {
-    days: number[]; // 1 = Monday, 4 = Thursday
-    time: string; // "10:00"
-  };
-  shelfStable: {
-    days: number[]; // 3 = Wednesday
-    time: string; // "14:00"
-  };
+  perishable: { days: number[]; time: string; };
+  shelfStable: { days: number[]; time: string; };
 }
 
 @Component({
@@ -132,7 +120,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
   suppliers: string[] = [];
   brands: string[] = [];
   poReceipts: POReceipt[] = [];
-
   uploadedFileName: string = '';
   searchQuery: string = '';
   currentPage: number = 1;
@@ -147,26 +134,21 @@ export class RawMaterialRequisitionComponent implements OnInit {
   isUploading: boolean = false;
   uploadProgress: number = 0;
   isDragOver: boolean = false;
-
   sortField: string = '';
   sortAsc: boolean = true;
-
   currentUser: any;
   isAdmin: boolean = false;
-
   filteredMaterials: Map<string, RawMaterial[]> = new Map();
   customSupplierInput: string = '';
   showCustomSupplierField: boolean = false;
   customBrandInput: string = '';
   showCustomBrandField: boolean = false;
-
   userTables: LocalUserTable[] = [];
   selectedTableId: string = '';
   currentTable: LocalUserTable | null = null;
   showApprovalPanel: boolean = false;
   pendingApprovals: LocalUserTable[] = [];
   pendingApprovalsCount: number = 0;
-
   showSnackbar: boolean = false;
   snackbarMessage: string = '';
   snackbarType: 'success' | 'error' | 'info' | 'warning' = 'info';
@@ -175,18 +157,10 @@ export class RawMaterialRequisitionComponent implements OnInit {
   snackbarActionCallback?: () => void;
   private snackbarTimeout: any;
 
-  // Cut-off schedule configuration
   cutOffSchedule: CutOffSchedule = {
-    perishable: {
-      days: [1, 4], // Monday and Thursday
-      time: '10:00'
-    },
-    shelfStable: {
-      days: [3], // Wednesday
-      time: '14:00'
-    }
+    perishable: { days: [1, 4], time: '10:00' },
+    shelfStable: { days: [3], time: '14:00' }
   };
-  
   cutOffAdjustmentHours: number = 0;
   unservedCount: number = 0;
 
@@ -248,7 +222,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       requisitionType: ['perishable', Validators.required],
       category: ['', Validators.required],
       sku: ['', Validators.required],
-      skuCode: [{ value: '', disabled: false }, Validators.required],
+      skuCode: [{ value: '', disabled: false }],
       qtyNeeded: [1, [Validators.required, Validators.min(1), Validators.max(999)]],
       dateNeeded: [''],
       supplier: ['', Validators.required],
@@ -291,7 +265,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     await this.loadMasterDataFromDatabase();
     await this.loadSuppliersAndBrands();
     await this.loadUserTables();
-    
+
     const lastTableId = localStorage.getItem('lastSelectedTable');
     if (lastTableId) {
       this.selectedTableId = lastTableId;
@@ -313,7 +287,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }, 0);
   }
 
-  // ========== FORM SUBMISSION ==========
+  // ========== UPDATED VALIDATION ==========
   onSubmitRequisition(): void {
     this.addRequisition();
   }
@@ -324,117 +298,96 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (this.requisitionForm.invalid) return false;
     if (this.isPastCutOff()) return false;
     if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) return false;
+
+    const value = this.requisitionForm.value;
+    if (!value.skuCode?.trim()) return false;
+    if (!value.supplier?.trim()) return false;
+    if (!value.brand?.trim()) return false;
+    if (!value.unit?.trim()) return false;
+
     return true;
   }
 
   getAddButtonTooltip(): string {
-    if (!this.selectedTableId) {
-      return 'Please select or create a table first';
-    }
-    if (!this.isTableEditable()) {
-      return `Table is ${this.currentTable?.status || 'not editable'}. Only draft or rejected tables can be edited.`;
-    }
-    if (!this.requisitionForm.valid) {
-      return 'Please fill all required fields correctly';
-    }
-    if (this.isPastCutOff()) {
-      return 'Past cut-off schedule. Requisitions will be processed next cycle.';
-    }
-    if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) {
-      return 'No PO receipts attached. Cannot add requisitions to approved table without PO receipts.';
-    }
+    if (!this.selectedTableId) return 'Please select or create a table first';
+    if (!this.isTableEditable()) return `Table is ${this.currentTable?.status || 'not editable'}. Only draft or rejected tables can be edited.`;
+    if (this.requisitionForm.invalid) return 'Please fill all required fields correctly';
+    if (!this.requisitionForm.value.skuCode) return 'SKU Code is missing';
+    if (!this.requisitionForm.value.supplier) return 'Supplier is required';
+    if (!this.requisitionForm.value.brand) return 'Brand is required';
+    if (!this.requisitionForm.value.unit) return 'Unit is required';
+    if (this.isPastCutOff()) return 'Past cut-off schedule. Requisitions will be processed next cycle.';
+    if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) return 'No PO receipts attached. Cannot add to approved table without PO.';
     return 'Add requisition to table';
+  }
+
+  canSubmitTable(): boolean {
+    if (!this.currentTable) return false;
+    if (this.currentTable.status === 'approved') return false;
+    if (this.requisitionItems.length === 0) return false;
+
+    const hasIncomplete = this.requisitionItems.some(item =>
+      !item.skuCode?.trim() ||
+      !item.supplier?.trim() ||
+      !item.brand?.trim() ||
+      !item.unit?.trim() ||
+      item.qtyNeeded <= 0
+    );
+
+    if (hasIncomplete) {
+      this.showSnackbarMessage('Cannot submit: Some requisitions are missing required fields (SKU Code, Supplier, Brand, Unit, or Quantity)', 'error');
+      return false;
+    }
+
+    return true;
   }
 
   // ========== REQUISITION METHODS ==========
   async addRequisition(): Promise<void> {
     console.log('=== DEBUG: addRequisition validation check ===');
-    
     if (!this.selectedTableId) {
       this.showSnackbarMessage('Please select or create a table first', 'error');
-      
       const shouldCreate = confirm('No table selected. Would you like to create a new table?');
       if (shouldCreate) {
         await this.createNewTable();
-        if (!this.selectedTableId) {
-          return;
-        }
-      } else {
-        return;
-      }
+        if (!this.selectedTableId) return;
+      } else return;
     }
-    
+
     if (!this.isTableEditable()) {
       this.showSnackbarMessage(`Cannot add items to this table. Current status: ${this.currentTable?.status}`, 'error');
       return;
     }
-    
+
     if (this.isPastCutOff()) {
       const proceed = confirm('⚠️ Past cut-off schedule!\n\nRequisitions submitted now will be processed in the next cycle.\n\nDo you want to continue?');
       if (!proceed) return;
     }
-    
+
     if (this.currentTable?.status === 'approved' && !this.hasPOReceipts()) {
       this.showSnackbarMessage('Cannot add requisitions to approved table without PO receipts. Please attach PO receipts first.', 'error');
       this.viewPOReceipts();
       return;
     }
-    
-    // Log form state for debugging
-    console.log('Form validity check:');
-    Object.keys(this.requisitionForm.controls).forEach(key => {
-      const control = this.requisitionForm.get(key);
-      console.log(`${key}:`, {
-        value: control?.value,
-        valid: control?.valid,
-        errors: control?.errors,
-        touched: control?.touched,
-        dirty: control?.dirty
-      });
-      if (control?.invalid) {
-        control.markAsTouched();
-      }
-    });
-    
-    // Check if form is valid
+
     this.requisitionForm.markAllAsTouched();
-    
     if (this.requisitionForm.invalid) {
-      // Check specific validation issues
       const errors: string[] = [];
-      
-      if (!this.requisitionForm.get('requisitionType')?.valid) {
-        errors.push('Requisition type is required');
-      }
-      if (!this.requisitionForm.get('category')?.valid) {
-        errors.push('Category is required');
-      }
-      if (!this.requisitionForm.get('sku')?.valid) {
-        errors.push('SKU is required');
-      }
-      if (!this.requisitionForm.get('skuCode')?.valid || !this.requisitionForm.get('skuCode')?.value) {
-        errors.push('SKU Code is required');
-      }
-      if (!this.requisitionForm.get('qtyNeeded')?.valid) {
-        errors.push('Quantity must be between 1 and 999');
-      }
-      if (!this.requisitionForm.get('supplier')?.valid) {
-        errors.push('Supplier is required');
-      }
-      if (!this.requisitionForm.get('brand')?.valid) {
-        errors.push('Brand is required');
-      }
-      if (!this.requisitionForm.get('unit')?.valid) {
-        errors.push('Unit is required');
-      }
-      
+      if (!this.requisitionForm.get('requisitionType')?.valid) errors.push('Requisition type');
+      if (!this.requisitionForm.get('category')?.valid) errors.push('Category');
+      if (!this.requisitionForm.get('sku')?.valid) errors.push('SKU');
+      if (!this.requisitionForm.get('skuCode')?.value) errors.push('SKU Code');
+      if (!this.requisitionForm.get('qtyNeeded')?.valid) errors.push('Quantity');
+      if (!this.requisitionForm.get('supplier')?.valid || !this.requisitionForm.get('supplier')?.value) errors.push('Supplier');
+      if (!this.requisitionForm.get('brand')?.valid || !this.requisitionForm.get('brand')?.value) errors.push('Brand');
+      if (!this.requisitionForm.get('unit')?.valid) errors.push('Unit');
+
       this.showSnackbarMessage('Form has validation errors: ' + errors.join(', '), 'error');
       return;
     }
 
     const formValue = this.requisitionForm.value;
 
-    // Handle custom supplier
     let finalSupplier = formValue.supplier;
     if (this.showCustomSupplierField && this.customSupplierInput.trim()) {
       finalSupplier = this.customSupplierInput.trim();
@@ -443,7 +396,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
       return;
     }
 
-    // Handle custom brand
     let finalBrand = formValue.brand;
     if (this.showCustomBrandField && this.customBrandInput.trim()) {
       finalBrand = this.customBrandInput.trim();
@@ -452,9 +404,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       return;
     }
 
-    // Check if SKU Code is available
     if (!formValue.skuCode && formValue.sku) {
-      // Try to find SKU code from the SKU name
       const selectedSku = this.skus.find(s => s.name === formValue.sku);
       if (selectedSku) {
         this.requisitionForm.get('skuCode')?.setValue(selectedSku.code);
@@ -465,7 +415,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
 
     const requisitionNumber = this.generateRequisitionNumber();
-    
     const newItem: MaterialRequisition = {
       id: this.generateId(),
       requisitionNumber: requisitionNumber,
@@ -489,7 +438,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     this.requisitionItems.unshift(newItem);
 
     try {
-      // Create requisition data for the NEW material_requisitions table
       const requisitionData = {
         requisition_number: requisitionNumber,
         type: newItem.type,
@@ -511,10 +459,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
       };
 
       const result = await this.dbService.createRequisition(requisitionData, []);
-      
       if (result.success && result.requisitionId) {
         newItem.id = result.requisitionId;
-        
         await this.dbService.updateTableItemCount(this.selectedTableId, this.requisitionItems.length);
         if (this.currentTable) {
           this.currentTable.itemCount = this.requisitionItems.length;
@@ -522,24 +468,19 @@ export class RawMaterialRequisitionComponent implements OnInit {
         }
       } else {
         const index = this.requisitionItems.findIndex(item => item.id === newItem.id);
-        if (index !== -1) {
-          this.requisitionItems.splice(index, 1);
-        }
+        if (index !== -1) this.requisitionItems.splice(index, 1);
         this.showSnackbarMessage('Error saving to database: ' + (result.error?.message || 'Unknown error'), 'error');
         return;
       }
     } catch (error: any) {
       const index = this.requisitionItems.findIndex(item => item.id === newItem.id);
-      if (index !== -1) {
-        this.requisitionItems.splice(index, 1);
-      }
+      if (index !== -1) this.requisitionItems.splice(index, 1);
       this.showSnackbarMessage('Error saving to database: ' + (error.message || 'Unknown error'), 'error');
       return;
     }
 
     await this.saveTableData();
     this.updateUnservedCount();
-
     this.showSnackbarMessage(`Requisition ${requisitionNumber} added successfully!`, 'success');
 
     this.requisitionForm.reset({
@@ -559,16 +500,65 @@ export class RawMaterialRequisitionComponent implements OnInit {
     this.showCustomBrandField = false;
     this.customSupplierInput = '';
     this.customBrandInput = '';
-
     this.currentPage = 1;
     this.filterAndPaginate();
+  }
+
+  async submitTableForApproval(): Promise<void> {
+    if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
+
+    if (this.unservedCount > 0) {
+      const proceed = confirm(`⚠️ There are ${this.unservedCount} unserved materials.\n\nSubmit table anyway?`);
+      if (!proceed) return;
+    }
+
+    if (this.isPastCutOff()) {
+      const proceed = confirm('⚠️ Past cut-off schedule!\n\nTable will be processed in the next cycle.\n\nSubmit anyway?');
+      if (!proceed) return;
+    }
+
+    if (!this.hasPOReceipts()) {
+      const proceed = confirm('⚠️ NO PO RECEIPTS ATTACHED!\n\nAccording to policy: NO PO, NO DELIVERY.\n\nSubmit anyway?');
+      if (!proceed) {
+        this.viewPOReceipts();
+        return;
+      }
+    }
+
+    if (confirm('Submit Table\n\nSubmit this entire table for approval? All requisitions will be submitted.')) {
+      try {
+        await this.dbService.submitTableForApproval(
+          this.selectedTableId,
+          this.currentUser.full_name || this.currentUser.username
+        );
+
+        this.currentTable!.status = 'submitted';
+        this.currentTable!.submittedBy = this.currentUser.full_name || this.currentUser.username;
+        this.currentTable!.submittedDate = new Date();
+        this.currentTable!.updatedAt = new Date();
+
+        this.requisitionItems.forEach(item => {
+          if (item.status === 'draft') {
+            item.status = 'submitted';
+            item.submittedBy = this.currentUser.full_name || this.currentUser.username;
+            item.submittedDate = new Date();
+          }
+        });
+
+        await this.saveTableData();
+        await this.loadPendingApprovals();
+        this.showSnackbarMessage('Table submitted for approval', 'success');
+      } catch (error) {
+        console.error('Error submitting table:', error);
+        this.showSnackbarMessage('Failed to submit table', 'error');
+      }
+    }
   }
 
   // ========== DATA LOADING METHODS ==========
   private async loadMasterDataFromDatabase(): Promise<void> {
     try {
       this.masterData = await this.dbService.getMasterData();
-      
       if (this.masterData.length > 0) {
         this.populateCategories();
         this.cdRef.detectChanges();
@@ -611,7 +601,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
       if (!this.brands.includes('Other')) {
         this.brands.push('Other');
       }
-
     } catch (error) {
       console.error('Error loading suppliers and brands:', error);
       this.suppliers = ['Other'];
@@ -623,7 +612,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     try {
       const dbTables = await this.dbService.getUserTables(this.currentUser.id);
       this.userTables = dbTables.map(table => this.convertToLocalTable(table));
-      
       await this.loadPendingApprovals();
     } catch (error) {
       console.error('Error loading user tables:', error);
@@ -657,17 +645,14 @@ export class RawMaterialRequisitionComponent implements OnInit {
           createdAt: new Date(),
           updatedAt: new Date()
         };
-        
+
         this.userTables.push(localTable);
         this.selectedTableId = newTable.tableId;
         this.currentTable = localTable;
         this.requisitionItems = [];
-        
         localStorage.setItem('lastSelectedTable', newTable.tableId);
-        
         this.filterAndPaginate();
         this.showSnackbarMessage('Table created successfully', 'success');
-        
         this.cdRef.detectChanges();
       } else {
         this.showSnackbarMessage('Failed to create table: ' + (newTable.error?.message || 'Unknown error'), 'error');
@@ -687,29 +672,23 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
 
     localStorage.setItem('lastSelectedTable', this.selectedTableId);
-    
+
     try {
       const dbTable = await this.dbService.getTableById(this.selectedTableId);
       if (dbTable) {
         this.currentTable = this.convertToLocalTable(dbTable);
       }
-      
+
       const requisitions = await this.dbService.getTableRequisitions(this.selectedTableId);
-      
       this.requisitionItems = requisitions.map((req: DBMaterialRequisition & { materials?: any[] }) => {
         let mappedStatus: MaterialRequisition['status'] = 'draft';
-        
         if (req.status === 'submitted' || req.status === 'approved' || req.status === 'rejected') {
           mappedStatus = req.status;
         } else {
           const materials = req.materials || [];
-          const servedCount = materials.filter((m: any) => 
-            m.status === 'fully-served' || (m.served_qty && m.served_qty >= m.required_qty)
-          ).length;
-          const partiallyServedCount = materials.filter((m: any) => 
-            m.status === 'partially-served' || (m.served_qty && m.served_qty > 0 && m.served_qty < m.required_qty)
-          ).length;
-          
+          const servedCount = materials.filter((m: any) => m.status === 'fully-served' || (m.served_qty && m.served_qty >= m.required_qty)).length;
+          const partiallyServedCount = materials.filter((m: any) => m.status === 'partially-served' || (m.served_qty && m.served_qty > 0 && m.served_qty < m.required_qty)).length;
+
           if (servedCount === materials.length && materials.length > 0) {
             mappedStatus = 'fully-served';
           } else if (servedCount > 0 || partiallyServedCount > 0) {
@@ -718,7 +697,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
             mappedStatus = 'draft';
           }
         }
-        
+
         return {
           id: req.id,
           requisitionNumber: req.requisition_number || `MR-${req.id.slice(-6)}`,
@@ -761,7 +740,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
         };
       });
 
-      // Load PO receipts for this table
       await this.loadPOReceipts();
       this.updateUnservedCount();
       this.filterAndPaginate();
@@ -773,10 +751,9 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   async loadPOReceipts(): Promise<void> {
     if (!this.selectedTableId) return;
-    
+
     try {
       const poReceipts = await this.dbService.getPOReceiptsByTable(this.selectedTableId);
-      
       this.poReceipts = poReceipts.map((receipt: DBPOReceipt) => ({
         id: receipt.id,
         tableId: receipt.table_id,
@@ -814,42 +791,29 @@ export class RawMaterialRequisitionComponent implements OnInit {
   // ========== CUT-OFF SCHEDULE METHODS ==========
   isPastCutOff(): boolean {
     const now = new Date();
-    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const currentTime = now.getHours() * 60 + now.getMinutes(); // minutes since midnight
-    
-    // Get the selected requisition type from form
+    const currentDay = now.getDay();
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+
     const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
-    const schedule = requisitionType === 'perishable' 
-      ? this.cutOffSchedule.perishable 
-      : this.cutOffSchedule.shelfStable;
-    
-    // Check if today is a cut-off day
+    const schedule = requisitionType === 'perishable' ? this.cutOffSchedule.perishable : this.cutOffSchedule.shelfStable;
+
     const isCutOffDay = schedule.days.includes(currentDay);
-    
     if (!isCutOffDay) {
-      // Find next cut-off day
       const nextCutOffDay = this.findNextCutOffDay(requisitionType);
       return nextCutOffDay < currentDay;
     }
-    
-    // Parse cut-off time
+
     const [hours, minutes] = schedule.time.split(':').map(Number);
     const cutOffTime = hours * 60 + minutes + this.cutOffAdjustmentHours * 60;
-    
     return currentTime > cutOffTime;
   }
 
   private findNextCutOffDay(requisitionType: string): number {
     const now = new Date();
     const currentDay = now.getDay();
-    const schedule = requisitionType === 'perishable' 
-      ? this.cutOffSchedule.perishable 
-      : this.cutOffSchedule.shelfStable;
-    
-    // Find next cut-off day
+    const schedule = requisitionType === 'perishable' ? this.cutOffSchedule.perishable : this.cutOffSchedule.shelfStable;
     const sortedDays = [...schedule.days].sort((a, b) => a - b);
     const nextDay = sortedDays.find(day => day > currentDay) || sortedDays[0];
-    
     return nextDay;
   }
 
@@ -857,18 +821,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
     const now = new Date();
     const currentDay = now.getDay();
     const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
-    const schedule = requisitionType === 'perishable' 
-      ? this.cutOffSchedule.perishable 
-      : this.cutOffSchedule.shelfStable;
-    
+    const schedule = requisitionType === 'perishable' ? this.cutOffSchedule.perishable : this.cutOffSchedule.shelfStable;
     const nextDay = this.findNextCutOffDay(requisitionType);
-    
-    // Calculate days until next cut-off
+
     let daysUntilNext = nextDay - currentDay;
-    if (daysUntilNext <= 0) {
-      daysUntilNext += 7;
-    }
-    
+    if (daysUntilNext <= 0) daysUntilNext += 7;
+
     const nextDate = new Date(now);
     nextDate.setDate(now.getDate() + daysUntilNext);
     return nextDate;
@@ -876,10 +834,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   getNextCutOffTime(): string {
     const requisitionType = this.requisitionForm.get('requisitionType')?.value || 'perishable';
-    const schedule = requisitionType === 'perishable' 
-      ? this.cutOffSchedule.perishable 
-      : this.cutOffSchedule.shelfStable;
-    
+    const schedule = requisitionType === 'perishable' ? this.cutOffSchedule.perishable : this.cutOffSchedule.shelfStable;
     return schedule.time;
   }
 
@@ -892,7 +847,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
   }
 
   updateCutOffSchedule(): void {
-    // In a real app, you would save this to the database
     this.showSnackbarMessage('Cut-off schedule updated successfully', 'success');
     this.closeCutOffSchedule();
   }
@@ -916,10 +870,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
   }
 
   getPOReceiptsForRequisition(requisitionId: string): POReceipt[] {
-    return this.poReceipts.filter(receipt => 
-      receipt.requisitionId === requisitionId || 
-      !receipt.requisitionId // General receipts for the table
-    );
+    return this.poReceipts.filter(receipt => receipt.requisitionId === requisitionId || !receipt.requisitionId);
   }
 
   async uploadPOReceipt(): Promise<void> {
@@ -942,7 +893,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     event.preventDefault();
     event.stopPropagation();
     this.isDragOver = false;
-    
     const files = event.dataTransfer?.files;
     if (files && files.length > 0) {
       this.handleFiles(files);
@@ -964,49 +914,38 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     this.isUploading = true;
     this.uploadProgress = 0;
-    
+
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        
-        // Validate file
-        if (!this.validateFile(file)) {
-          continue;
-        }
-        
-        // Simulate upload progress
+        if (!this.validateFile(file)) continue;
+
         const progressInterval = setInterval(() => {
           this.uploadProgress += 10;
-          if (this.uploadProgress >= 100) {
-            clearInterval(progressInterval);
-          }
+          if (this.uploadProgress >= 100) clearInterval(progressInterval);
           this.cdRef.detectChanges();
         }, 200);
-        
-        // In a real app, upload to Supabase storage
+
         const fileName = `po_receipt_${Date.now()}_${file.name}`;
         const fileType = file.type;
         const fileSize = file.size;
-        
-        // Create PO receipt record
+
         const poReceiptData: Partial<DBPOReceipt> = {
           table_id: this.selectedTableId,
           po_number: `PO-${Date.now().toString().slice(-6)}`,
-          supplier: 'Unknown Supplier', // In real app, extract from file or form
-          amount: 0, // In real app, extract from file
+          supplier: 'Unknown Supplier',
+          amount: 0,
           receipt_date: new Date().toISOString(),
           file_name: fileName,
-          file_url: '', // URL after upload
+          file_url: '',
           file_type: fileType,
           file_size: fileSize,
           status: 'pending' as const,
           item_count: 0,
           remarks: ''
         };
-        
-        // Save to database using the DatabaseService
+
         const result = await this.dbService.createPOReceipt(poReceiptData);
-        
         if (result.success && result.receiptId) {
           const newReceipt: POReceipt = {
             id: result.receiptId,
@@ -1025,25 +964,21 @@ export class RawMaterialRequisitionComponent implements OnInit {
             createdAt: new Date(),
             updatedAt: new Date()
           };
-          
           this.poReceipts.unshift(newReceipt);
         } else {
           throw new Error(result.error?.message || 'Failed to create PO receipt');
         }
-        
+
         clearInterval(progressInterval);
         this.uploadProgress = 100;
       }
-      
+
       this.showSnackbarMessage('PO receipts uploaded successfully', 'success');
-      
-      // Reset after delay
       setTimeout(() => {
         this.isUploading = false;
         this.uploadProgress = 0;
         this.cdRef.detectChanges();
       }, 1000);
-      
     } catch (error: any) {
       console.error('Error uploading PO receipts:', error);
       this.showSnackbarMessage('Error uploading PO receipts: ' + error.message, 'error');
@@ -1053,24 +988,20 @@ export class RawMaterialRequisitionComponent implements OnInit {
   }
 
   private validateFile(file: File): boolean {
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024;
     const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    
     if (file.size > maxSize) {
       this.showSnackbarMessage(`File ${file.name} exceeds 10MB limit`, 'error');
       return false;
     }
-    
     if (!allowedTypes.includes(file.type)) {
       this.showSnackbarMessage(`File ${file.name} must be PDF, JPG, or PNG`, 'error');
       return false;
     }
-    
     return true;
   }
 
   viewReceiptFile(receipt: POReceipt): void {
-    // In a real app, open the file in a new tab or modal
     if (receipt.fileUrl) {
       window.open(receipt.fileUrl, '_blank');
     } else {
@@ -1079,7 +1010,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
   }
 
   downloadReceipt(receipt: POReceipt): void {
-    // In a real app, trigger download
     if (receipt.fileUrl) {
       const link = document.createElement('a');
       link.href = receipt.fileUrl;
@@ -1094,16 +1024,13 @@ export class RawMaterialRequisitionComponent implements OnInit {
     try {
       const adminName = this.currentUser.full_name || this.currentUser.username;
       const result = await this.dbService.verifyPOReceipt(receiptId, adminName);
-      
       if (result.success) {
-        // Update local state
         const receipt = this.poReceipts.find(r => r.id === receiptId);
         if (receipt) {
           receipt.status = 'verified';
           receipt.verifiedBy = adminName;
           receipt.verifiedDate = new Date();
         }
-        
         this.showSnackbarMessage('PO receipt verified successfully', 'success');
         this.cdRef.detectChanges();
       } else {
@@ -1119,7 +1046,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (confirm('Are you sure you want to delete this PO receipt?')) {
       try {
         const result = await this.dbService.deletePOReceipt(receiptId);
-        
         if (result.success) {
           this.poReceipts = this.poReceipts.filter(r => r.id !== receiptId);
           this.showSnackbarMessage('PO receipt deleted successfully', 'success');
@@ -1160,12 +1086,9 @@ export class RawMaterialRequisitionComponent implements OnInit {
       .filter(category => category && typeof category === 'string' && category.trim())
       .map(category => category as string);
 
-    const hasUncategorizedSkus = this.masterData.some(r => 
-      !r.category || r.category.trim() === ''
-    );
+    const hasUncategorizedSkus = this.masterData.some(r => !r.category || r.category.trim() === '');
 
     this.categories = [...new Set(categoriesWithValues)].sort();
-    
     if (hasUncategorizedSkus) {
       this.categories.push('Uncategorized');
     }
@@ -1173,7 +1096,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   onCategoryChange(): void {
     const category = this.requisitionForm.get('category')?.value;
-
     this.skus = [];
     this.requisitionForm.get('sku')?.setValue('');
     this.requisitionForm.get('skuCode')?.setValue('');
@@ -1181,12 +1103,11 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (!category) return;
 
     const uniqueSkusMap = new Map<string, { name: string; code: string; category: string }>();
-    
     this.masterData.forEach(item => {
-      const matchesCategory = category === 'Uncategorized' 
+      const matchesCategory = category === 'Uncategorized'
         ? (!item.category || item.category.trim() === '')
         : item.category === category;
-      
+
       if (matchesCategory && item.sku_name) {
         const code = (item.sku_code || '').toString().trim();
         const name = item.sku_name.trim();
@@ -1195,10 +1116,9 @@ export class RawMaterialRequisitionComponent implements OnInit {
         }
       }
     });
-    
-    this.skus = Array.from(uniqueSkusMap.values())
-      .sort((a, b) => a.name.localeCompare(b.name));
-    
+
+    this.skus = Array.from(uniqueSkusMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+
     const skuControl = this.requisitionForm.get('sku');
     if (this.skus.length > 0) {
       skuControl?.enable();
@@ -1209,9 +1129,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   onSkuChange(): void {
     const skuName = this.requisitionForm.get('sku')?.value;
-    
     const selected = this.skus.find(s => s.name === skuName);
-    
     if (selected) {
       this.requisitionForm.get('skuCode')?.setValue(selected.code);
     } else {
@@ -1222,7 +1140,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
   onSupplierChange(): void {
     const selectedSupplier = this.requisitionForm.get('supplier')?.value;
     this.showCustomSupplierField = selectedSupplier === 'Other';
-    
     if (this.showCustomSupplierField) {
       this.customSupplierInput = '';
       this.requisitionForm.get('supplier')?.setValue('');
@@ -1232,7 +1149,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
   onBrandChange(): void {
     const selectedBrand = this.requisitionForm.get('brand')?.value;
     this.showCustomBrandField = selectedBrand === 'Other';
-    
     if (this.showCustomBrandField) {
       this.customBrandInput = '';
       this.requisitionForm.get('brand')?.setValue('');
@@ -1261,19 +1177,10 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
   }
 
-  // ========== REST OF THE METHODS ==========
+  // ========== REMAINING METHODS (UNCHANGED) ==========
   openAddMaterialModal(requisitionId: string): void {
     this.selectedRequisitionId = requisitionId;
-    this.materialForm.reset({
-      name: '',
-      type: 'raw-material',
-      quantity: 1,
-      unit: 'kg',
-      requiredQty: 1,
-      brand: '',
-      supplier: '',
-      remarks: ''
-    });
+    this.materialForm.reset({ name: '', type: 'raw-material', quantity: 1, unit: 'kg', requiredQty: 1, brand: '', supplier: '', remarks: '' });
     this.showAddMaterialModal = true;
   }
 
@@ -1290,7 +1197,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     const formValue = this.materialForm.value;
     const requisition = this.requisitionItems.find(r => r.id === this.selectedRequisitionId);
-    
     if (!requisition) {
       this.showSnackbarMessage('Requisition not found', 'error');
       return;
@@ -1313,10 +1219,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     requisition.materials.push(newMaterial);
     requisition.updatedAt = new Date();
-
     this.updateRequisitionStatus(requisition);
     this.updateUnservedCount();
-
     this.saveTableData();
     this.closeAddMaterialModal();
     this.showSnackbarMessage('Material added successfully', 'success');
@@ -1334,7 +1238,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     material.servedQty = Math.min(servedQty, material.requiredQty);
     material.servedDate = new Date();
     material.isUnserved = material.servedQty < material.requiredQty;
-    
+
     if (material.servedQty === material.requiredQty) {
       material.status = 'fully-served';
     } else if (material.servedQty > 0) {
@@ -1345,7 +1249,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     this.updateRequisitionStatus(requisition);
     this.updateUnservedCount();
-
     requisition.updatedAt = new Date();
     this.saveTableData();
     this.filterAndPaginate();
@@ -1360,13 +1263,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
     const allMaterials = requisition.materials;
     const servedCount = allMaterials.filter(m => m.status === 'fully-served').length;
     const partiallyServedCount = allMaterials.filter(m => m.status === 'partially-served').length;
-    const pendingCount = allMaterials.filter(m => m.status === 'pending').length;
 
     if (servedCount === allMaterials.length) {
       requisition.status = 'fully-served';
     } else if (servedCount > 0 || partiallyServedCount > 0) {
       requisition.status = 'partially-served';
-    } else if (pendingCount === allMaterials.length) {
+    } else {
       requisition.status = requisition.status === 'approved' ? 'approved' : 'draft';
     }
   }
@@ -1384,10 +1286,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (materialIndex === -1) return;
 
     requisition.materials.splice(materialIndex, 1);
-    
     this.updateRequisitionStatus(requisition);
     this.updateUnservedCount();
-    
     requisition.updatedAt = new Date();
     this.saveTableData();
     this.filterAndPaginate();
@@ -1404,7 +1304,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (index === -1) return;
 
     const requisition = this.requisitionItems[index];
-    
+
     if (confirm(`Delete Requisition\n\nAre you sure you want to delete requisition ${requisition.requisitionNumber}?`)) {
       try {
         await this.dbService.deleteRequisition(requisitionId);
@@ -1462,7 +1362,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     this.totalPages = Math.ceil(filtered.length / this.itemsPerPage);
     this.currentPage = Math.min(this.currentPage, this.totalPages || 1);
-
     const start = (this.currentPage - 1) * this.itemsPerPage;
     const end = start + this.itemsPerPage;
     this.filteredItems = filtered.slice(start, end);
@@ -1503,7 +1402,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   exportData(type: string = 'all'): void {
     this.isExportDropdownOpen = false;
-
     if (this.requisitionItems.length === 0) {
       this.showSnackbarMessage('No data to export.', 'error');
       return;
@@ -1515,14 +1413,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
       ['Table', this.currentTable?.name || 'No table'],
       ['Export Type', type === 'all' ? 'All Requisitions' : type === 'perishable' ? 'Perishable Only' : 'Shelf-Stable Only'],
       [''],
-      ['Req #', 'Type', 'Date Needed', 'SKU Code', 'SKU Name', 'Category', 'Qty Needed', 'Unit', 'Supplier', 'Brand', 'Status',
-      'Material Name', 'Material Type', 'Quantity', 'Unit', 'Required Qty', 'Served Qty', 'Unserved',
-      'Material Brand', 'Material Supplier', 'Remarks', 'Served Date', 'Created Date']
+      ['Req #', 'Type', 'Date Needed', 'SKU Code', 'SKU Name', 'Category', 'Qty Needed', 'Unit', 'Supplier', 'Brand', 'Status', 'Material Name', 'Material Type', 'Quantity', 'Unit', 'Required Qty', 'Served Qty', 'Unserved', 'Material Brand', 'Material Supplier', 'Remarks', 'Served Date', 'Created Date']
     ];
 
     this.requisitionItems.forEach(requisition => {
       if (type !== 'all' && requisition.type !== type) return;
-      
+
       if (!requisition.materials?.length) {
         data.push([
           requisition.requisitionNumber,
@@ -1536,7 +1432,8 @@ export class RawMaterialRequisitionComponent implements OnInit {
           requisition.supplier,
           requisition.brand,
           requisition.status,
-          '', '', '', '', '', '', '', '', '', '', requisition.createdAt.toLocaleDateString()
+          '', '', '', '', '', '', '', '', '', '', '',
+          requisition.createdAt.toLocaleDateString()
         ]);
         return;
       }
@@ -1567,7 +1464,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
           material.servedDate ? material.servedDate.toLocaleDateString() : '',
           index === 0 ? requisition.createdAt.toLocaleDateString() : ''
         ];
-
         data.push(row);
       });
     });
@@ -1575,11 +1471,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Material Requisition');
-
-    const fileName = `Material_Requisition_${
-      type === 'all' ? 'All' : type === 'perishable' ? 'Perishable' : 'ShelfStable'
-    }_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
-
+    const fileName = `Material_Requisition_${type === 'all' ? 'All' : type === 'perishable' ? 'Perishable' : 'ShelfStable'}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
     XLSX.writeFile(wb, fileName);
     this.showSnackbarMessage(`Exported successfully!`, 'success');
   }
@@ -1589,21 +1481,18 @@ export class RawMaterialRequisitionComponent implements OnInit {
       this.showSnackbarMessage('Please select a table first', 'error');
       return;
     }
-    
     if (!this.isTableEditable()) {
       this.showSnackbarMessage('Cannot clear table in its current status', 'error');
       return;
     }
-    
+
     if (confirm('Clear Table\n\nClear all requisitions from this table? This action cannot be undone.')) {
       try {
         this.requisitionItems = [];
         this.searchQuery = '';
         this.currentPage = 1;
         this.unservedCount = 0;
-        
         await this.saveTableData();
-        
         this.filterAndPaginate();
         this.showSnackbarMessage('Table cleared successfully!', 'success');
       } catch (error) {
@@ -1630,16 +1519,13 @@ export class RawMaterialRequisitionComponent implements OnInit {
     if (this.snackbarTimeout) {
       clearTimeout(this.snackbarTimeout);
     }
-    
     this.snackbarMessage = message;
     this.snackbarType = type;
     this.snackbarDuration = duration || 4000;
     this.showSnackbar = true;
-    
     this.snackbarTimeout = setTimeout(() => {
       this.hideSnackbar();
     }, this.snackbarDuration);
-    
     this.cdRef.detectChanges();
   }
 
@@ -1701,13 +1587,13 @@ export class RawMaterialRequisitionComponent implements OnInit {
       createdAt: new Date(dbTable.created_at),
       updatedAt: new Date(dbTable.updated_at),
       dateNeeded: dbTable.date_needed ? new Date(dbTable.date_needed) : undefined,
-      poReceipts: [] // Initialize empty array
+      poReceipts: []
     };
   }
 
   async renameTable(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable) return;
-    
+
     const newName = prompt('Rename Table\n\nEnter new table name:', this.currentTable.name);
     if (!newName?.trim() || newName === this.currentTable?.name) {
       if (!newName?.trim()) {
@@ -1720,13 +1606,13 @@ export class RawMaterialRequisitionComponent implements OnInit {
       await this.dbService.updateTableName(this.selectedTableId, newName.trim());
       this.currentTable!.name = newName.trim();
       this.currentTable!.updatedAt = new Date();
-      
+
       const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
       if (tableIndex !== -1) {
         this.userTables[tableIndex].name = newName.trim();
         this.userTables[tableIndex].updatedAt = new Date();
       }
-      
+
       this.showSnackbarMessage('Table renamed successfully', 'success');
     } catch (error) {
       console.error('Error renaming table:', error);
@@ -1736,11 +1622,10 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   async deleteTable(): Promise<void> {
     if (!this.selectedTableId) return;
-    
+
     if (confirm('Delete Table\n\nAre you sure you want to delete this table? All data will be lost.')) {
       try {
         await this.dbService.deleteTable(this.selectedTableId);
-        
         this.userTables = this.userTables.filter(t => t.id !== this.selectedTableId);
         this.selectedTableId = '';
         this.currentTable = null;
@@ -1748,7 +1633,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
         this.poReceipts = [];
         this.unservedCount = 0;
         this.filterAndPaginate();
-        
         localStorage.removeItem('lastSelectedTable');
         this.showSnackbarMessage('Table deleted successfully', 'success');
       } catch (error) {
@@ -1758,68 +1642,6 @@ export class RawMaterialRequisitionComponent implements OnInit {
     }
   }
 
-  async submitTableForApproval(): Promise<void> {
-    if (!this.selectedTableId || !this.currentTable || !this.canSubmitTable()) return;
-    
-    // Additional validation before submission
-    if (this.unservedCount > 0) {
-      const proceed = confirm(`⚠️ There are ${this.unservedCount} unserved materials.\n\nSubmit table anyway?`);
-      if (!proceed) return;
-    }
-    
-    if (this.isPastCutOff()) {
-      const proceed = confirm('⚠️ Past cut-off schedule!\n\nTable will be processed in the next cycle.\n\nSubmit anyway?');
-      if (!proceed) return;
-    }
-    
-    if (confirm('Submit Table\n\nSubmit this entire table for approval? All requisitions will be submitted.')) {
-      try {
-        await this.dbService.submitTableForApproval(
-          this.selectedTableId,
-          this.currentUser.full_name || this.currentUser.username
-        );
-        
-        this.currentTable!.status = 'submitted';
-        this.currentTable!.submittedBy = this.currentUser.full_name || this.currentUser.username;
-        this.currentTable!.submittedDate = new Date();
-        this.currentTable!.updatedAt = new Date();
-        
-        this.requisitionItems.forEach(item => {
-          if (item.status === 'draft') {
-            item.status = 'submitted';
-            item.submittedBy = this.currentUser.full_name || this.currentUser.username;
-            item.submittedDate = new Date();
-          }
-        });
-        
-        await this.saveTableData();
-        await this.loadPendingApprovals();
-        this.showSnackbarMessage('Table submitted for approval', 'success');
-      } catch (error) {
-        console.error('Error submitting table:', error);
-        this.showSnackbarMessage('Failed to submit table', 'error');
-      }
-    }
-  }
-
-  canSubmitTable(): boolean {
-    if (!this.currentTable) return false;
-    if (this.currentTable.status === 'approved') return false;
-    if (this.requisitionItems.length === 0) return false;
-    
-    // Check if all required fields are filled
-    const hasIncompleteRequisitions = this.requisitionItems.some(item => {
-      return !item.skuCode || !item.supplier || !item.brand || !item.unit;
-    });
-    
-    if (hasIncompleteRequisitions) {
-      this.showSnackbarMessage('Cannot submit: Some requisitions have missing required fields', 'error');
-      return false;
-    }
-    
-    return true;
-  }
-
   async loadPendingApprovals(): Promise<void> {
     if (!this.isAdmin) {
       this.pendingApprovals = [];
@@ -1827,7 +1649,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       this.cdRef.detectChanges();
       return;
     }
-    
+
     try {
       const dbTables = await this.dbService.getPendingApprovals();
       this.pendingApprovals = dbTables.map(table => this.convertToLocalTable(table));
@@ -1850,21 +1672,15 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   async approveTable(tableId: string): Promise<void> {
     const remarks = prompt('Approve Table\n\nEnter approval remarks (optional):');
-    
     try {
       const adminName = this.currentUser.full_name || this.currentUser.username;
-
       await this.dbService.approveTable(tableId, adminName, remarks?.trim() || '');
-
       this.showSnackbarMessage('Table approved successfully', 'success');
-
       await this.loadPendingApprovals();
       await this.loadUserTables();
-
       if (this.selectedTableId === tableId) {
         await this.loadTableData();
       }
-
     } catch (error: any) {
       console.error('Error approving table:', error);
       this.showSnackbarMessage(`Failed to approve: ${error.message || 'Unknown error'}`, 'error');
@@ -1880,18 +1696,13 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
     try {
       const adminName = this.currentUser.full_name || this.currentUser.username;
-
       await this.dbService.rejectTable(tableId, adminName, remarks.trim());
-
       this.showSnackbarMessage('Table rejected', 'info');
-
       await this.loadPendingApprovals();
       await this.loadUserTables();
-
       if (this.selectedTableId === tableId) {
         await this.loadTableData();
       }
-
     } catch (error: any) {
       console.error('Error rejecting table:', error);
       this.showSnackbarMessage(`Failed to reject: ${error.message || 'Unknown error'}`, 'error');
@@ -1906,13 +1717,12 @@ export class RawMaterialRequisitionComponent implements OnInit {
 
   private async saveTableData(): Promise<void> {
     if (!this.selectedTableId || !this.currentTable) return;
-    
+
     try {
       await this.dbService.updateTableItemCount(this.selectedTableId, this.requisitionItems.length);
-      
       this.currentTable.itemCount = this.requisitionItems.length;
       this.currentTable.updatedAt = new Date();
-      
+
       const tableIndex = this.userTables.findIndex(t => t.id === this.selectedTableId);
       if (tableIndex !== -1) {
         this.userTables[tableIndex].itemCount = this.requisitionItems.length;
@@ -1929,7 +1739,7 @@ export class RawMaterialRequisitionComponent implements OnInit {
       case 'success': return 'fa-check-circle';
       case 'error': return 'fa-exclamation-circle';
       case 'warning': return 'fa-exclamation-triangle';
-      case 'info': 
+      case 'info':
       default: return 'fa-info-circle';
     }
   }

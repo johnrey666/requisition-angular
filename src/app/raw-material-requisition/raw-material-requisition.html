@@ -10,19 +10,15 @@
             <option [value]="table.id">{{ table.name }}</option>
           }
         </select>
-        
         <button class="btn-sm btn-icon" (click)="createNewTable()" title="New Table">
           <i class="fas fa-plus"></i>
         </button>
-        
         <button class="btn-sm btn-icon" [disabled]="!selectedTableId" (click)="renameTable()" title="Rename">
           <i class="fas fa-edit"></i>
         </button>
-        
         <button class="btn-sm btn-danger" [disabled]="!selectedTableId" (click)="deleteTable()" title="Delete">
           <i class="fas fa-trash"></i>
         </button>
-        
         @if (selectedTableId) {
           @if (currentTable?.status === 'rejected') {
             <button class="btn-sm btn-primary" [disabled]="!canSubmitTable()" (click)="submitTableForApproval()" title="Resubmit Table">
@@ -34,7 +30,6 @@
             </button>
           }
         }
-        
         <!-- Cut-off Schedule Button -->
         <button class="btn-sm btn-secondary" (click)="viewCutOffSchedule()" title="Cut-off Schedule">
           <i class="fas fa-calendar-alt"></i> Schedule
@@ -60,10 +55,7 @@
     <div class="control-section">
       <div class="action-buttons-compact">
         <div class="dropdown">
-          <button class="btn-sm btn-icon" 
-                  [disabled]="requisitionItems.length === 0" 
-                  (click)="toggleExportDropdown()"
-                  title="Export">
+          <button class="btn-sm btn-icon" [disabled]="requisitionItems.length === 0" (click)="toggleExportDropdown()" title="Export">
             <i class="fas fa-download"></i> Export
           </button>
           @if (isExportDropdownOpen) {
@@ -74,11 +66,9 @@
             </div>
           }
         </div>
-
         <button class="btn-sm btn-danger" (click)="clearAll()" [disabled]="!selectedTableId || !isTableEditable()" title="Clear Table">
           <i class="fas fa-trash"></i> Clear
         </button>
-        
         <!-- PO Receipts Button -->
         <button class="btn-sm btn-info" (click)="viewPOReceipts()" [disabled]="!selectedTableId" title="PO Receipts">
           <i class="fas fa-receipt"></i> PO Receipts
@@ -109,7 +99,7 @@
       }
     </div>
   }
-  
+
   <!-- Cut-off Warning -->
   @if (isPastCutOff()) {
     <div class="status-bar error">
@@ -117,7 +107,7 @@
       <span>⚠️ Past cut-off schedule! Requisitions submitted now may not be processed until next cycle.</span>
     </div>
   }
-  
+
   <div class="status-bar">
     <span class="stats">
       <i class="fas fa-table"></i> {{ currentTable?.name || 'No table selected' }}
@@ -208,30 +198,24 @@
             <h5><i class="fas fa-info-circle"></i> Current Schedule</h5>
             <div class="schedule-details">
               <div class="schedule-item">
-                <strong>Perishable Items:</strong>
-                <span>Every Monday & Thursday, 10:00 AM</span>
+                <strong>Perishable Items:</strong> <span>Every Monday & Thursday, 10:00 AM</span>
               </div>
               <div class="schedule-item">
-                <strong>Shelf-Stable Items:</strong>
-                <span>Every Wednesday, 2:00 PM</span>
+                <strong>Shelf-Stable Items:</strong> <span>Every Wednesday, 2:00 PM</span>
               </div>
               <div class="schedule-item">
-                <strong>Next Cut-off:</strong>
-                <span>{{ getNextCutOffDate() | date:'fullDate' }} at {{ getNextCutOffTime() }}</span>
+                <strong>Next Cut-off:</strong> <span>{{ getNextCutOffDate() | date:'fullDate' }} at {{ getNextCutOffTime() }}</span>
               </div>
               <div class="schedule-item">
-                <strong>Delivery Lead Time:</strong>
-                <span>2-3 business days after approval</span>
+                <strong>Delivery Lead Time:</strong> <span>2-3 business days after approval</span>
               </div>
             </div>
-            
             <div class="cutoff-status">
               <div class="status-indicator" [class.past]="isPastCutOff()" [class.valid]="!isPastCutOff()">
                 <i class="fas" [class.fa-check-circle]="!isPastCutOff()" [class.fa-exclamation-circle]="isPastCutOff()"></i>
                 <span>{{ isPastCutOff() ? 'Past Cut-off Time' : 'Within Cut-off Schedule' }}</span>
               </div>
             </div>
-            
             @if (isAdmin) {
               <div class="admin-cutoff-controls">
                 <h5><i class="fas fa-cog"></i> Admin Settings</h5>
@@ -271,7 +255,7 @@
                 <i class="fas fa-upload"></i> Upload PO Receipt
               </button>
             </div>
-            
+
             <!-- PO Receipts List -->
             @if (poReceipts.length > 0) {
               <div class="po-receipts-list">
@@ -289,19 +273,11 @@
                         </span>
                       </div>
                       <div class="receipt-details">
-                        <div class="detail">
-                          <strong>Supplier:</strong> {{ receipt.supplier }}
-                        </div>
-                        <div class="detail">
-                          <strong>Amount:</strong> {{ receipt.amount | currency:'PHP' }}
-                        </div>
-                        <div class="detail">
-                          <strong>Items:</strong> {{ receipt.itemCount }}
-                        </div>
+                        <div class="detail"><strong>Supplier:</strong> {{ receipt.supplier }}</div>
+                        <div class="detail"><strong>Amount:</strong> {{ receipt.amount | currency:'PHP' }}</div>
+                        <div class="detail"><strong>Items:</strong> {{ receipt.itemCount }}</div>
                         @if (receipt.remarks) {
-                          <div class="detail">
-                            <strong>Remarks:</strong> {{ receipt.remarks }}
-                          </div>
+                          <div class="detail"><strong>Remarks:</strong> {{ receipt.remarks }}</div>
                         }
                       </div>
                       <div class="receipt-actions">
@@ -312,9 +288,7 @@
                           <i class="fas fa-download"></i> Download
                         </button>
                         @if (isAdmin) {
-                          <button type="button" class="btn-xs btn-success" 
-                                  [disabled]="receipt.status === 'verified'"
-                                  (click)="verifyReceipt(receipt.id)">
+                          <button type="button" class="btn-xs btn-success" [disabled]="receipt.status === 'verified'" (click)="verifyReceipt(receipt.id)">
                             <i class="fas fa-check"></i> Verify
                           </button>
                         }
@@ -327,7 +301,7 @@
                 </div>
               </div>
             }
-            
+
             <!-- Upload Area -->
             <div class="upload-area" *ngIf="!isUploading">
               <div class="upload-zone" (click)="fileInput.click()" [class.drag-over]="isDragOver"
@@ -339,7 +313,6 @@
                 <input #fileInput type="file" (change)="onFileSelected($event)" multiple accept=".pdf,.jpg,.jpeg,.png" hidden>
               </div>
             </div>
-            
             @if (isUploading) {
               <div class="upload-progress">
                 <div class="progress">
@@ -361,7 +334,6 @@
         <i class="fas fa-search"></i>
         <input type="text" formControlName="search" placeholder="Search requisitions..." class="filter-input">
       </div>
-      
       <div class="filter-group">
         <select formControlName="status" class="filter-select">
           @for (filter of statusFilters; track filter.value) {
@@ -369,7 +341,6 @@
           }
         </select>
       </div>
-      
       <div class="filter-group">
         <select formControlName="type" class="filter-select">
           @for (filter of typeFilters; track filter.value) {
@@ -377,23 +348,18 @@
           }
         </select>
       </div>
-      
       <div class="filter-group">
         <input type="date" formControlName="dateFrom" class="filter-date" placeholder="From Date">
       </div>
-      
       <div class="filter-group">
         <input type="date" formControlName="dateTo" class="filter-date" placeholder="To Date">
       </div>
-      
-      <!-- Unserved Filter -->
       <div class="filter-group">
         <select formControlName="unservedOnly" class="filter-select">
           <option value="false">All Materials</option>
           <option value="true">Unserved Only</option>
         </select>
       </div>
-      
       <button type="button" class="btn-sm btn-secondary" (click)="filterForm.reset()">
         <i class="fas fa-times"></i> Clear Filters
       </button>
@@ -406,7 +372,6 @@
     <div class="left-panel">
       <div class="form-card">
         <h3><i class="fas fa-plus-circle"></i> Add New Requisition</h3>
-        
         <form [formGroup]="requisitionForm" (ngSubmit)="onSubmitRequisition()">
           <!-- Requisition Type -->
           <div class="form-group">
@@ -435,7 +400,6 @@
                 <small class="text-danger">Category is required</small>
               }
             </div>
-            
             <div class="form-group">
               <label>SKU *</label>
               <select class="form-control" formControlName="sku" (change)="onSkuChange()" [disabled]="skus.length === 0">
@@ -465,7 +429,6 @@
                 <small class="text-danger">Quantity must be between 1 and 999</small>
               }
             </div>
-            
             <div class="form-group">
               <label>Unit *</label>
               <select class="form-control" formControlName="unit">
@@ -499,14 +462,10 @@
             @if (requisitionForm.get('supplier')?.invalid && requisitionForm.get('supplier')?.touched) {
               <small class="text-danger">Supplier is required</small>
             }
-            
             @if (showCustomSupplierField) {
               <div class="custom-input-group">
-                <input type="text" [(ngModel)]="customSupplierInput" [ngModelOptions]="{standalone: true}" 
-                       placeholder="Enter supplier name" class="form-control custom-input">
-                <button type="button" class="btn-xs btn-primary" (click)="addCustomSupplier()" [disabled]="!customSupplierInput.trim()">
-                  Add
-                </button>
+                <input type="text" [(ngModel)]="customSupplierInput" [ngModelOptions]="{standalone: true}" placeholder="Enter supplier name" class="form-control custom-input">
+                <button type="button" class="btn-xs btn-primary" (click)="addCustomSupplier()" [disabled]="!customSupplierInput.trim()">Add</button>
               </div>
             }
           </div>
@@ -523,37 +482,28 @@
             @if (requisitionForm.get('brand')?.invalid && requisitionForm.get('brand')?.touched) {
               <small class="text-danger">Brand is required</small>
             }
-            
             @if (showCustomBrandField) {
               <div class="custom-input-group">
-                <input type="text" [(ngModel)]="customBrandInput" [ngModelOptions]="{standalone: true}" 
-                       placeholder="Enter brand name" class="form-control custom-input">
-                <button type="button" class="btn-xs btn-primary" (click)="addCustomBrand()" [disabled]="!customBrandInput.trim()">
-                  Add
-                </button>
+                <input type="text" [(ngModel)]="customBrandInput" [ngModelOptions]="{standalone: true}" placeholder="Enter brand name" class="form-control custom-input">
+                <button type="button" class="btn-xs btn-primary" (click)="addCustomBrand()" [disabled]="!customBrandInput.trim()">Add</button>
               </div>
             }
           </div>
 
           <!-- Remarks -->
           <div class="form-group">
-            <label>Remarks</label>
+            <label>Remarks (Optional)</label>
             <textarea class="form-control" formControlName="remarks" rows="2" placeholder="Additional notes..."></textarea>
           </div>
 
           <!-- Submit Button -->
           <div class="form-footer">
-            <button type="submit" class="btn btn-primary btn-block" 
-                    [disabled]="!canAddRequisition()"
-                    [title]="getAddButtonTooltip()">
+            <button type="submit" class="btn btn-primary btn-block" [disabled]="!canAddRequisition()" [title]="getAddButtonTooltip()">
               <i class="fas fa-plus"></i> Add Requisition
             </button>
-            
-            <!-- Error Info -->
             <div class="error-info" *ngIf="!canAddRequisition()">
               <small class="text-muted">
-                <i class="fas fa-info-circle"></i> 
-                Cannot add requisition because:
+                <i class="fas fa-info-circle"></i> Cannot add requisition because:
                 <span *ngIf="!selectedTableId">• No table selected</span>
                 <span *ngIf="!isTableEditable()">• Table is not editable</span>
                 <span *ngIf="requisitionForm.invalid">• Form has validation errors</span>
@@ -564,7 +514,7 @@
           </div>
         </form>
       </div>
-      
+
       <!-- Cut-off Info Panel -->
       <div class="cutoff-info-panel">
         <h4><i class="fas fa-clock"></i> Cut-off Schedule</h4>
@@ -605,7 +555,6 @@
             }
           </div>
         </div>
-
         <div class="table-responsive">
           <table class="requisition-table">
             <thead>
@@ -642,7 +591,6 @@
                   </td>
                 </tr>
               }
-
               @for (item of filteredItems; track item.id) {
                 <tr [class.expanded]="expandedRows.has(item.id)" [class.has-unserved]="hasUnservedMaterials(item)">
                   <td>
@@ -676,32 +624,23 @@
                   <td>
                     <span class="status-badge" [style.background-color]="getStatusColor(item.status)">
                       <i class="fas" [class]="getStatusIcon(item.status)"></i>
-                      {{ 
-                        item.status === 'draft' ? 'Draft' : 
-                        item.status === 'submitted' ? 'Submitted' : 
-                        item.status === 'approved' ? 'Approved' : 
-                        item.status === 'rejected' ? 'Rejected' : 
-                        item.status === 'partially-served' ? 'Partially Served' : 
-                        item.status === 'fully-served' ? 'Fully Served' : item.status 
-                      }}
+                      {{ item.status === 'draft' ? 'Draft' : item.status === 'submitted' ? 'Submitted' : item.status === 'approved' ? 'Approved' : item.status === 'rejected' ? 'Rejected' : item.status === 'partially-served' ? 'Partially Served' : 'Fully Served' }}
                     </span>
                   </td>
                   <td class="numeric">
                     {{ item.materials.length }}
                     @if (hasUnservedMaterials(item)) {
                       <span class="unserved-indicator" title="Has unserved materials">
-                        <i class="fas fa-exclamation-circle"></i>
+                        <i class="fas fa-exclamation-circle" style="color: red;"></i>
                       </span>
                     }
                   </td>
                   <td>
                     <div class="action-buttons">
-                      <button type="button" class="btn-icon btn-sm btn-primary" (click)="openAddMaterialModal(item.id)" 
-                              [disabled]="!isTableEditable()" title="Add Material">
+                      <button type="button" class="btn-icon btn-sm btn-primary" (click)="openAddMaterialModal(item.id)" [disabled]="!isTableEditable()" title="Add Material">
                         <i class="fas fa-plus"></i>
                       </button>
-                      <button type="button" class="btn-icon btn-sm btn-danger" (click)="deleteRequisition(item.id)" 
-                              [disabled]="!isTableEditable()" title="Delete">
+                      <button type="button" class="btn-icon btn-sm btn-danger" (click)="deleteRequisition(item.id)" [disabled]="!isTableEditable()" title="Delete">
                         <i class="fas fa-trash"></i>
                       </button>
                     </div>
@@ -716,7 +655,6 @@
                         <!-- Materials List -->
                         <div class="materials-section">
                           <h5><i class="fas fa-boxes"></i> Materials ({{ item.materials.length }})</h5>
-                          
                           @if (item.materials.length === 0) {
                             <div class="no-materials">
                               <i class="fas fa-box-open"></i>
@@ -737,47 +675,24 @@
                                       <span class="material-type">{{ material.type }}</span>
                                     </div>
                                     <span class="material-status" [style.background-color]="getMaterialStatusColor(material.status || 'pending')">
-                                      {{ material.status === 'pending' ? 'Pending' : 
-                                         material.status === 'partially-served' ? 'Partially Served' : 
-                                         'Fully Served' }}
+                                      {{ material.status === 'pending' ? 'Pending' : material.status === 'partially-served' ? 'Partially Served' : 'Fully Served' }}
                                     </span>
                                   </div>
-                                  
                                   <div class="material-details">
                                     <div class="detail-row">
-                                      <div class="detail">
-                                        <span class="detail-label">Quantity:</span>
-                                        <span class="detail-value">{{ material.qty }} {{ material.unit }}</span>
-                                      </div>
-                                      <div class="detail">
-                                        <span class="detail-label">Required:</span>
-                                        <span class="detail-value">{{ material.requiredQty }} {{ material.unit }}</span>
-                                      </div>
-                                      <div class="detail">
-                                        <span class="detail-label">Brand:</span>
-                                        <span class="detail-value">{{ material.brand || '-' }}</span>
-                                      </div>
-                                      <div class="detail">
-                                        <span class="detail-label">Supplier:</span>
-                                        <span class="detail-value">{{ material.supplier || '-' }}</span>
-                                      </div>
+                                      <div class="detail"><span class="detail-label">Quantity:</span> <span class="detail-value">{{ material.qty }} {{ material.unit }}</span></div>
+                                      <div class="detail"><span class="detail-label">Required:</span> <span class="detail-value">{{ material.requiredQty }} {{ material.unit }}</span></div>
+                                      <div class="detail"><span class="detail-label">Brand:</span> <span class="detail-value">{{ material.brand || '-' }}</span></div>
+                                      <div class="detail"><span class="detail-label">Supplier:</span> <span class="detail-value">{{ material.supplier || '-' }}</span></div>
                                     </div>
-                                    
                                     <div class="served-section">
                                       <label>Served Quantity:</label>
                                       <div class="served-controls">
-                                        <input type="number" class="served-input" 
-                                               [value]="material.servedQty || 0"
-                                               min="0" [max]="material.requiredQty"
-                                               (change)="updateMaterialServedQty(item.id, material.id, $any($event.target).value)"
-                                               [disabled]="!isTableEditable()"
-                                               [class.unserved-input]="material.isUnserved">
+                                        <input type="number" class="served-input" [value]="material.servedQty || 0" min="0" [max]="material.requiredQty"
+                                               (change)="updateMaterialServedQty(item.id, material.id, $any($event.target).value)" [disabled]="!isTableEditable()" [class.unserved-input]="material.isUnserved">
                                         <span class="unit-label">{{ material.unit }}</span>
                                         @if (material.servedDate) {
-                                          <span class="served-date">
-                                            <i class="fas fa-calendar"></i>
-                                            {{ material.servedDate | date:'shortDate' }}
-                                          </span>
+                                          <span class="served-date"><i class="fas fa-calendar"></i> {{ material.servedDate | date:'shortDate' }}</span>
                                         }
                                       </div>
                                       @if (material.isUnserved) {
@@ -787,18 +702,14 @@
                                         </div>
                                       }
                                     </div>
-                                    
                                     @if (material.remarks) {
                                       <div class="material-remarks">
                                         <strong>Remarks:</strong> {{ material.remarks }}
                                       </div>
                                     }
                                   </div>
-                                  
                                   <div class="material-actions">
-                                    <button type="button" class="btn-xs btn-danger" 
-                                            (click)="deleteMaterial(item.id, material.id)"
-                                            [disabled]="!isTableEditable()">
+                                    <button type="button" class="btn-xs btn-danger" (click)="deleteMaterial(item.id, material.id)" [disabled]="!isTableEditable()">
                                       <i class="fas fa-trash"></i> Remove
                                     </button>
                                   </div>
@@ -807,13 +718,13 @@
                             </div>
                           }
                         </div>
-                        
+
                         @if (item.remarks) {
                           <div class="requisition-remarks">
                             <strong><i class="fas fa-comment"></i> Requisition Remarks:</strong> {{ item.remarks }}
                           </div>
                         }
-                        
+
                         <!-- PO Receipts for this requisition -->
                         @if (item.status === 'approved') {
                           <div class="po-receipts-section">
@@ -828,9 +739,7 @@
                                 @for (receipt of getPOReceiptsForRequisition(item.id); track receipt.id) {
                                   <span class="po-badge" [class.verified]="receipt.status === 'verified'">
                                     {{ receipt.poNumber }}
-                                    @if (receipt.status === 'verified') {
-                                      <i class="fas fa-check"></i>
-                                    }
+                                    @if (receipt.status === 'verified') { <i class="fas fa-check"></i> }
                                   </span>
                                 }
                               </div>
@@ -878,7 +787,6 @@
               <label>Material Name *</label>
               <input type="text" class="form-control" formControlName="name" placeholder="Enter material name">
             </div>
-            
             <div class="form-row">
               <div class="form-group">
                 <label>Type *</label>
@@ -888,7 +796,6 @@
                   }
                 </select>
               </div>
-              
               <div class="form-group">
                 <label>Unit *</label>
                 <select class="form-control" formControlName="unit">
@@ -898,36 +805,30 @@
                 </select>
               </div>
             </div>
-            
             <div class="form-row">
               <div class="form-group">
                 <label>Quantity *</label>
                 <input type="number" class="form-control" formControlName="quantity" min="0.01" step="0.01">
               </div>
-              
               <div class="form-group">
                 <label>Required Qty *</label>
                 <input type="number" class="form-control" formControlName="requiredQty" min="0.01" step="0.01">
               </div>
             </div>
-            
             <div class="form-row">
               <div class="form-group">
                 <label>Brand</label>
                 <input type="text" class="form-control" formControlName="brand" placeholder="Optional">
               </div>
-              
               <div class="form-group">
                 <label>Supplier</label>
                 <input type="text" class="form-control" formControlName="supplier" placeholder="Optional">
               </div>
             </div>
-            
             <div class="form-group">
               <label>Remarks</label>
               <textarea class="form-control" formControlName="remarks" rows="2" placeholder="Optional remarks..."></textarea>
             </div>
-
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" (click)="closeAddMaterialModal()">Cancel</button>
               <button type="submit" class="btn btn-primary" [disabled]="materialForm.invalid">Add Material</button>
