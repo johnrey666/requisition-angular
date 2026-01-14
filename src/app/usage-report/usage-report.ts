@@ -41,21 +41,17 @@ export class UsageReportComponent implements OnInit {
   isLoading: boolean = false;
   currentUser: any = null;
   
-  // Pagination
   currentPage: number = 1;
   itemsPerPage: number = 15;
   totalPages: number = 1;
   
-  // Sorting
   sortField: string = 'total_quantity';
   sortAsc: boolean = false;
   
-  // Stats
   totalMaterials: number = 0;
   totalQuantity: number = 0;
   totalTables: number = 0;
   
-  // Snackbar
   showSnackbar: boolean = false;
   snackbarMessage: string = '';
   snackbarType: 'success' | 'error' | 'info' = 'info';
@@ -110,9 +106,7 @@ export class UsageReportComponent implements OnInit {
       
       let allRequisitions: any[] = [];
 
-      // Get all tables and their requisitions
       for (const table of this.userTables) {
-        // Only process specific table if selected, or all tables if "all"
         if (this.selectedTableId !== 'all' && table.id !== this.selectedTableId) {
           continue;
         }
@@ -121,7 +115,6 @@ export class UsageReportComponent implements OnInit {
         console.log(`Found ${requisitions.length} requisitions for table:`, table.name);
         
         if (requisitions && requisitions.length > 0) {
-          // Add table name to each requisition for reference
           requisitions.forEach((req: any) => {
             req.table_name = table.name;
             req.table_id = table.id;
@@ -133,7 +126,6 @@ export class UsageReportComponent implements OnInit {
 
       console.log('Total requisitions found:', allRequisitions.length);
 
-      // Process and aggregate the data
       await this.processUsageData(allRequisitions);
       
       this.isLoading = false;
@@ -161,10 +153,8 @@ export class UsageReportComponent implements OnInit {
       return;
     }
 
-    // Debug: Check what's in requisitions
     console.log('Processing requisitions:', requisitions);
     
-    // Group materials by name and unit
     const materialMap = new Map<string, {
       material_name: string;
       material_type: string;
@@ -184,14 +174,11 @@ export class UsageReportComponent implements OnInit {
       const tableName = req.table_name || `Table ${req.id?.substring(0, 8)}`;
       const skuName = req.sku_name || 'Unknown SKU';
       
-      // Get materials for this requisition
       let materials: any[] = [];
       
       if (req.materials && Array.isArray(req.materials) && req.materials.length > 0) {
-        // Materials already loaded with the requisition
         materials = req.materials;
       } else if (req.id) {
-        // Try to load materials separately
         console.log(`Loading materials for requisition ${req.id}`);
         try {
           materials = await this.dbService.getRequisitionMaterials(req.id);
@@ -231,7 +218,6 @@ export class UsageReportComponent implements OnInit {
     console.log(`Processed ${processedRequisitions} requisitions with ${processedMaterials} materials`);
     console.log(`Created ${materialMap.size} unique material entries`);
 
-    // Convert map to array and format
     this.usageData = Array.from(materialMap.values()).map(item => ({
       material_name: item.material_name,
       material_type: item.material_type,
@@ -245,15 +231,11 @@ export class UsageReportComponent implements OnInit {
 
     console.log('Processed usage data:', this.usageData);
 
-    // Calculate stats
     this.totalMaterials = this.usageData.length;
     this.totalQuantity = this.usageData.reduce((sum, item) => sum + item.total_quantity, 0);
     this.totalTables = new Set(this.usageData.flatMap(item => item.tables)).size;
 
-    // Generate type breakdown
     this.generateTypeBreakdown();
-
-    // Apply sorting and pagination
     this.applySorting();
     this.updatePagination();
   }
@@ -262,7 +244,7 @@ export class UsageReportComponent implements OnInit {
     const name = materialName.toLowerCase();
     
     if (name.includes('meat') || name.includes('chicken') || name.includes('pork') || 
-        name.includes('beef') || name.includes('fish') || name.includes('beef')) {
+        name.includes('beef') || name.includes('fish')) {
       return 'Meat & Poultry';
     } else if (name.includes('vegetable') || name.includes('veg') || name.includes('onion') || 
                name.includes('garlic') || name.includes('pepper') || name.includes('tomato')) {
@@ -321,10 +303,9 @@ export class UsageReportComponent implements OnInit {
       let aVal = a[this.sortField];
       let bVal = b[this.sortField];
       
-      // Handle special fields
-      if (this.sortField === 'material_name' || this.sortField === 'material_type') {
-        aVal = (aVal || '').toString().toLowerCase();
-        bVal = (bVal || '').toString().toLowerCase();
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
       }
       
       if (aVal < bVal) return this.sortAsc ? -1 : 1;
@@ -361,21 +342,17 @@ export class UsageReportComponent implements OnInit {
     
     if (lowerType.includes('meat') || lowerType.includes('poultry') || lowerType.includes('chicken') || 
         lowerType.includes('pork') || lowerType.includes('beef') || lowerType.includes('fish')) {
-      return 'type-meat-veg';
+      return 'meat-veg';
     } else if (lowerType.includes('vegetable') || lowerType.includes('veg')) {
-      return 'type-meat-veg';
+      return 'meat-veg';
     } else if (lowerType.includes('spice') || lowerType.includes('seasoning') || lowerType.includes('mix')) {
-      return 'type-pre-mix';
+      return 'spice';
     } else if (lowerType.includes('packaging')) {
-      return 'type-packaging';
+      return 'packaging';
     } else if (lowerType.includes('liquid') || lowerType.includes('sauce') || lowerType.includes('oil')) {
-      return 'type-other';
+      return 'liquid';
     }
-    return 'type-other';
-  }
-
-  getTablesList(tables: string[]): string {
-    return tables.join(', ');
+    return 'other';
   }
 
   async exportToExcel(): Promise<void> {
@@ -387,7 +364,6 @@ export class UsageReportComponent implements OnInit {
     try {
       const workbook = XLSX.utils.book_new();
       
-      // Main data sheet
       const mainData: any[][] = [
         ['Raw Material Usage Report'],
         ['Generated', new Date().toLocaleString('en-PH')],
@@ -414,21 +390,19 @@ export class UsageReportComponent implements OnInit {
 
       const mainSheet = XLSX.utils.aoa_to_sheet(mainData);
       
-      // Set column widths
       const colWidths = [
-        { wch: 30 }, // Material Name
-        { wch: 20 }, // Type
-        { wch: 10 }, // Unit
-        { wch: 15 }, // Total Required
-        { wch: 12 }, // Tables Used
-        { wch: 12 }, // SKUs Used In
-        { wch: 40 }  // Table Names
+        { wch: 30 },
+        { wch: 20 },
+        { wch: 10 },
+        { wch: 15 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 40 }
       ];
       mainSheet['!cols'] = colWidths;
       
       XLSX.utils.book_append_sheet(workbook, mainSheet, 'Usage Report');
 
-      // Type breakdown sheet
       const breakdownData: any[][] = [
         ['Material Type Breakdown'],
         ['Generated', new Date().toLocaleString('en-PH')],
@@ -447,17 +421,15 @@ export class UsageReportComponent implements OnInit {
 
       const breakdownSheet = XLSX.utils.aoa_to_sheet(breakdownData);
       
-      // Set column widths for breakdown sheet
       breakdownSheet['!cols'] = [
-        { wch: 25 }, // Type
-        { wch: 15 }, // Material Count
-        { wch: 15 }, // Total Quantity
-        { wch: 15 }  // Percentage
+        { wch: 25 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 15 }
       ];
       
       XLSX.utils.book_append_sheet(workbook, breakdownSheet, 'Type Breakdown');
 
-      // Generate filename
       const tableName = this.selectedTableId === 'all' ? 'AllTables' : 
         this.userTables.find(t => t.id === this.selectedTableId)?.name?.replace(/\s+/g, '_') || this.selectedTableId;
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -479,7 +451,7 @@ export class UsageReportComponent implements OnInit {
     
     this.snackbarTimeout = setTimeout(() => {
       this.hideSnackbar();
-    }, 4000);
+    }, 3000);
     
     this.cdRef.detectChanges();
   }
@@ -492,10 +464,10 @@ export class UsageReportComponent implements OnInit {
 
   getSnackbarIcon(): string {
     switch (this.snackbarType) {
-      case 'success': return 'fa-check-circle';
-      case 'error': return 'fa-exclamation-circle';
+      case 'success': return '✓';
+      case 'error': return '✕';
       case 'info': 
-      default: return 'fa-info-circle';
+      default: return 'ⓘ';
     }
   }
 }

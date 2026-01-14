@@ -1,26 +1,10 @@
 <div class="dashboard">
   <!-- Header -->
-  <header class="dashboard-header">
-    <div>
-      <h1>Dashboard</h1>
-      <p class="header-subtitle">Raw Material E-Portal Analytics</p>
-    </div>
-    <div class="header-actions">
-      <div class="current-date">
-        {{ currentDate }}
-      </div>
-      <button class="refresh-btn" (click)="refreshData()" [disabled]="loading">
-        <svg class="refresh-icon" [class.spinning]="loading" width="16" height="16" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-        </svg>
-        {{ loading ? 'Loading...' : 'Refresh' }}
-      </button>
-    </div>
-  </header>
+
 
   <!-- Show loading only briefly, then show data -->
   <div *ngIf="!loading || dataLoaded">
-    <!-- Stats Grid -->
+    <!-- Stats Grid - Now only 4 cards -->
     <div class="stats-grid" *ngIf="statCards.length > 0">
       <div *ngFor="let stat of statCards" class="stat-card">
         <div class="stat-card-header">
@@ -41,9 +25,9 @@
         <h2>Analytics</h2>
         <div class="time-filter">
           <select class="filter-select" (change)="onFilterChange($event)" [disabled]="loading">
-            <option value="week">This Week</option>
             <option value="month" selected>This Month</option>
             <option value="quarter">This Quarter</option>
+            <option value="year">This Year</option>
           </select>
         </div>
       </div>
@@ -96,7 +80,7 @@
           <div class="activity-chart">
             <div class="chart-bars">
               <div *ngFor="let day of activityDays" class="bar-container">
-                <div class="bar" [style.height]="day.value * 2 + 'px'" [title]="day.value + ' activities'">
+                <div class="bar" [style.height]="day.value * 1.5 + 'px'" [title]="day.value + ' activities'">
                   <div class="bar-value">{{ day.value }}</div>
                 </div>
                 <div class="bar-label">{{ day.label }}</div>
@@ -137,7 +121,6 @@
     <div class="loading-content">
       <div class="loading-spinner"></div>
       <div class="loading-text">Loading dashboard data...</div>
-      <div class="loading-subtext">This may take a few moments</div>
     </div>
   </div>
 </div>

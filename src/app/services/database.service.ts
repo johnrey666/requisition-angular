@@ -611,57 +611,93 @@ export class DatabaseService {
     materials: any[] = []
   ): Promise<{ success: boolean; requisitionId?: string; error?: any }> {
     try {
-      console.log('Creating requisition in material_requisitions table:', requisitionData);
-      
-      const { data: requisition, error: requisitionError } = await this.supabase
-        .from('material_requisitions')
-        .insert([{
-          ...requisitionData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
+      console.log('Creating requisition via RPC');
 
-      if (requisitionError) {
-        console.error('Material requisition creation error:', requisitionError);
-        return { success: false, error: requisitionError };
-      }
+      const requisitionNumber = await this.generateRequisitionNumber();
 
-      if (materials.length > 0) {
-        const formattedMaterials = materials.map(material => ({
-          requisition_id: requisition.id,
-          material_name: material.name,
+      const reqPayload = {
+        user_id: requisitionData.user_id,
+        table_id: requisitionData.table_id,
+        requisition_number: requisitionNumber,
+        sku_code: requisitionData.sku_code || '',
+        sku_name: requisitionData.sku_name || '',
+        category: requisitionData.category || '',
+        qty_needed: requisitionData.qty_needed || 1,
+        supplier: requisitionData.supplier || '',
+        qty_per_unit: requisitionData.qty_per_unit || '',
+        unit: requisitionData.unit || '',
+        qty_per_pack: requisitionData.qty_per_pack || '',
+        pack_unit: requisitionData.pack_unit || '',
+        status: requisitionData.status || 'draft',
+        type: requisitionData.type || 'raw-material'
+      };
+
+      const materialsPayload = materials
+        .filter(m => m.name && m.name.toString().trim() !== '')
+        .map(material => ({
+          material_name: material.name.toString().trim(),
           type: material.type || 'raw-material',
-          qty_per_batch: material.qty || 1,
-          unit: material.unit || 'kg',
-          required_qty: material.requiredQty || 1,
-          served_qty: material.servedQty || 0,
-          remarks: material.remarks || '',
-          served_date: material.servedDate,
-          is_unserved: material.isUnserved || false,
-          brand: material.brand || '',
-          supplier: material.supplier || '',
-          status: material.status || 'pending',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          qty_per_batch: Number(material.qty) || 0,
+          unit: (material.unit || '').toString().trim() || 'kg',
+          required_qty: Number(material.requiredQty) || 0,
+          supplier: (requisitionData.supplier || '').toString().trim()
         }));
 
-        const { error: materialsError } = await this.supabase
-          .from('material_requisition_materials')
-          .insert(formattedMaterials);
-
-        if (materialsError) {
-          await this.supabase.from('material_requisitions').delete().eq('id', requisition.id);
-          console.error('Materials creation error:', materialsError);
-          return { success: false, error: materialsError };
-        }
+      if (materialsPayload.length === 0) {
+        return { success: false, error: { message: 'No valid raw materials found' } };
       }
 
-      return { success: true, requisitionId: requisition.id };
+      const { data, error } = await this.supabase
+        .rpc('create_material_requisition', {
+          req_data: reqPayload,
+          materials_data: materialsPayload
+        });
+
+      if (error) {
+        console.error('RPC create_material_requisition error:', error);
+        return { success: false, error };
+      }
+
+      console.log('Requisition created successfully via RPC with ID:', data);
+      return { success: true, requisitionId: data };
+
     } catch (error: any) {
       console.error('Create requisition exception:', error);
       return { success: false, error };
+    }
+  }
+
+  private async generateRequisitionNumber(): Promise<string> {
+    try {
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const day = now.getDate().toString().padStart(2, '0');
+      
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      
+      const { count, error } = await this.supabase
+        .from('material_requisitions')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', startOfDay.toISOString())
+        .lt('created_at', endOfDay.toISOString());
+      
+      if (error) {
+        console.error('Error counting requisitions:', error);
+        const timestamp = now.getTime().toString().slice(-6);
+        return `REQ-${year}${month}${day}-${timestamp}`;
+      }
+      
+      const dailyCount = (count || 0) + 1;
+      const sequence = dailyCount.toString().padStart(4, '0');
+      
+      return `REQ-${year}${month}${day}-${sequence}`;
+      
+    } catch (error) {
+      console.error('Error generating requisition number:', error);
+      const timestamp = Date.now().toString().slice(-8);
+      return `REQ-${timestamp}`;
     }
   }
 
@@ -777,7 +813,6 @@ export class DatabaseService {
     }
   }
 
-  // ========== NEW REQUISITION UPDATE METHODS ==========
   async updateRequisitionDateNeeded(requisitionId: string, dateNeeded?: Date): Promise<{ success: boolean; error?: any }> {
     try {
       const { error } = await this.supabase
@@ -1180,7 +1215,6 @@ export class DatabaseService {
         console.error('Error deleting legacy table requisitions:', legacyReqsError);
       }
 
-      // Delete PO receipts for this table
       const { error: poReceiptsError } = await this.supabase
         .from('po_receipts')
         .delete()
@@ -1635,207 +1669,202 @@ export class DatabaseService {
       return { success: false, error };
     }
   }
+
   // ========== USAGE REPORT OPERATIONS ==========
-async getAllUserRequisitions(userId: string): Promise<MaterialRequisition[]> {
-  try {
-    const { data, error } = await this.supabase
-      .from('material_requisitions')
-      .select(`
-        *,
-        materials:material_requisition_materials(*)
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+  async getAllUserRequisitions(userId: string): Promise<MaterialRequisition[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('material_requisitions')
+        .select(`
+          *,
+          materials:material_requisition_materials(*)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Get all user requisitions error:', error);
-      return [];
-    }
-
-    return data || [];
-  } catch (error) {
-    console.error('Get all user requisitions exception:', error);
-    return [];
-  }
-}
-
-async getRequisitionMaterials(requisitionId: string): Promise<MaterialRequisitionMaterial[]> {
-  try {
-    const { data, error } = await this.supabase
-      .from('material_requisition_materials')
-      .select('*')
-      .eq('requisition_id', requisitionId)
-      .order('material_name', { ascending: true });
-
-    if (error) {
-      console.error('Get requisition materials error:', error);
-      return [];
-    }
-
-    return data || [];
-  } catch (error) {
-    console.error('Get requisition materials exception:', error);
-    return [];
-  }
-}
-
-async getAggregatedUsageData(userId: string, tableId?: string, startDate?: Date, endDate?: Date): Promise<any[]> {
-  try {
-    let query = this.supabase
-      .from('material_requisitions')
-      .select(`
-        id,
-        table_id,
-        user_tables!inner(name),
-        sku_name,
-        materials:material_requisition_materials(
-          material_name,
-          type,
-          unit,
-          required_qty,
-          qty_per_batch
-        )
-      `)
-      .eq('user_id', userId);
-
-    // Filter by table if specified
-    if (tableId && tableId !== 'all') {
-      query = query.eq('table_id', tableId);
-    }
-
-    // Filter by date range if specified
-    if (startDate) {
-      query = query.gte('created_at', startDate.toISOString());
-    }
-    if (endDate) {
-      query = query.lte('created_at', endDate.toISOString());
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Get aggregated usage data error:', error);
-      return [];
-    }
-
-    // Process and aggregate the data
-    const aggregatedData = this.aggregateUsageData(data || []);
-    return aggregatedData;
-  } catch (error) {
-    console.error('Get aggregated usage data exception:', error);
-    return [];
-  }
-}
-
-private aggregateUsageData(requisitions: any[]): any[] {
-  const materialMap = new Map<string, {
-    material_name: string;
-    material_type: string;
-    unit: string;
-    total_quantity: number;
-    tables: Set<string>;
-    skus: Set<string>;
-  }>();
-
-  for (const req of requisitions) {
-    const tableName = req.user_tables?.name || `Table ${req.table_id?.substring(0, 8)}`;
-    const skuName = req.sku_name || 'Unknown SKU';
-    
-    for (const material of req.materials || []) {
-      const key = `${material.material_name}|${material.unit}`.toLowerCase();
-      
-      if (!materialMap.has(key)) {
-        materialMap.set(key, {
-          material_name: material.material_name,
-          material_type: material.type || 'Other',
-          unit: material.unit || '',
-          total_quantity: 0,
-          tables: new Set<string>(),
-          skus: new Set<string>()
-        });
+      if (error) {
+        console.error('Get all user requisitions error:', error);
+        return [];
       }
-      
-      const materialData = materialMap.get(key)!;
-      materialData.total_quantity += material.required_qty || 0;
-      materialData.tables.add(tableName);
-      materialData.skus.add(skuName);
+
+      return data || [];
+    } catch (error) {
+      console.error('Get all user requisitions exception:', error);
+      return [];
     }
   }
 
-  // Convert map to array and format
-  return Array.from(materialMap.values()).map(item => ({
-    material_name: item.material_name,
-    material_type: item.material_type,
-    unit: item.unit,
-    total_quantity: item.total_quantity,
-    table_count: item.tables.size,
-    sku_count: item.skus.size,
-    tables: Array.from(item.tables),
-    skus: Array.from(item.skus)
-  }));
-}
-// Add this method to your existing DatabaseService class
-async debugCheckRequisitions(): Promise<void> {
-  console.log('=== DEBUG: Checking requisitions in database ===');
-  try {
-    const { data: requisitions, error } = await this.supabase
-      .from('material_requisitions')
-      .select('*')
-      .limit(20);
+  async getRequisitionMaterials(requisitionId: string): Promise<MaterialRequisitionMaterial[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('material_requisition_materials')
+        .select('*')
+        .eq('requisition_id', requisitionId)
+        .order('material_name', { ascending: true });
 
-    if (error) {
-      console.error('Error checking requisitions:', error);
-    } else {
-      console.log(`Found ${requisitions?.length || 0} requisitions in database:`, requisitions);
+      if (error) {
+        console.error('Get requisition materials error:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Get requisition materials exception:', error);
+      return [];
     }
-
-    const { data: materials, error: materialsError } = await this.supabase
-      .from('material_requisition_materials')
-      .select('*')
-      .limit(20);
-
-    if (materialsError) {
-      console.error('Error checking materials:', materialsError);
-    } else {
-      console.log(`Found ${materials?.length || 0} materials in database:`, materials);
-    }
-  } catch (error) {
-    console.error('Debug check error:', error);
   }
-}
 
-// Also add this method to help debug the usage report
-async debugCheckUserData(userId: string): Promise<void> {
-  console.log(`=== DEBUG: Checking data for user ${userId} ===`);
-  try {
-    const { data: tables, error: tablesError } = await this.supabase
-      .from('user_tables')
-      .select('*')
-      .eq('user_id', userId);
+  async getAggregatedUsageData(userId: string, tableId?: string, startDate?: Date, endDate?: Date): Promise<any[]> {
+    try {
+      let query = this.supabase
+        .from('material_requisitions')
+        .select(`
+          id,
+          table_id,
+          user_tables!inner(name),
+          sku_name,
+          materials:material_requisition_materials(
+            material_name,
+            type,
+            unit,
+            required_qty,
+            qty_per_batch
+          )
+        `)
+        .eq('user_id', userId);
 
-    if (tablesError) {
-      console.error('Error checking user tables:', tablesError);
-    } else {
-      console.log(`Found ${tables?.length || 0} tables for user:`, tables);
+      if (tableId && tableId !== 'all') {
+        query = query.eq('table_id', tableId);
+      }
+
+      if (startDate) {
+        query = query.gte('created_at', startDate.toISOString());
+      }
+      if (endDate) {
+        query = query.lte('created_at', endDate.toISOString());
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Get aggregated usage data error:', error);
+        return [];
+      }
+
+      const aggregatedData = this.aggregateUsageData(data || []);
+      return aggregatedData;
+    } catch (error) {
+      console.error('Get aggregated usage data exception:', error);
+      return [];
+    }
+  }
+
+  private aggregateUsageData(requisitions: any[]): any[] {
+    const materialMap = new Map<string, {
+      material_name: string;
+      material_type: string;
+      unit: string;
+      total_quantity: number;
+      tables: Set<string>;
+      skus: Set<string>;
+    }>();
+
+    for (const req of requisitions) {
+      const tableName = req.user_tables?.name || `Table ${req.table_id?.substring(0, 8)}`;
+      const skuName = req.sku_name || 'Unknown SKU';
       
-      // Check requisitions for each table
-      for (const table of tables || []) {
-        const { data: requisitions, error: reqError } = await this.supabase
-          .from('material_requisitions')
-          .select('*, materials:material_requisition_materials(*)')
-          .eq('table_id', table.id)
-          .eq('user_id', userId);
+      for (const material of req.materials || []) {
+        const key = `${material.material_name}|${material.unit}`.toLowerCase();
+        
+        if (!materialMap.has(key)) {
+          materialMap.set(key, {
+            material_name: material.material_name,
+            material_type: material.type || 'Other',
+            unit: material.unit || '',
+            total_quantity: 0,
+            tables: new Set<string>(),
+            skus: new Set<string>()
+          });
+        }
+        
+        const materialData = materialMap.get(key)!;
+        materialData.total_quantity += material.required_qty || 0;
+        materialData.tables.add(tableName);
+        materialData.skus.add(skuName);
+      }
+    }
 
-        if (reqError) {
-          console.error(`Error checking requisitions for table ${table.name}:`, reqError);
-        } else {
-          console.log(`Found ${requisitions?.length || 0} requisitions for table ${table.name}:`, requisitions);
+    return Array.from(materialMap.values()).map(item => ({
+      material_name: item.material_name,
+      material_type: item.material_type,
+      unit: item.unit,
+      total_quantity: item.total_quantity,
+      table_count: item.tables.size,
+      sku_count: item.skus.size,
+      tables: Array.from(item.tables),
+      skus: Array.from(item.skus)
+    }));
+  }
+
+  // ========== DEBUG METHODS ==========
+  async debugCheckRequisitions(): Promise<void> {
+    console.log('=== DEBUG: Checking requisitions in database ===');
+    try {
+      const { data: requisitions, error } = await this.supabase
+        .from('material_requisitions')
+        .select('*')
+        .limit(20);
+
+      if (error) {
+        console.error('Error checking requisitions:', error);
+      } else {
+        console.log(`Found ${requisitions?.length || 0} requisitions in database:`, requisitions);
+      }
+
+      const { data: materials, error: materialsError } = await this.supabase
+        .from('material_requisition_materials')
+        .select('*')
+        .limit(20);
+
+      if (materialsError) {
+        console.error('Error checking materials:', materialsError);
+      } else {
+        console.log(`Found ${materials?.length || 0} materials in database:`, materials);
+      }
+    } catch (error) {
+      console.error('Debug check error:', error);
+    }
+  }
+
+  async debugCheckUserData(userId: string): Promise<void> {
+    console.log(`=== DEBUG: Checking data for user ${userId} ===`);
+    try {
+      const { data: tables, error: tablesError } = await this.supabase
+        .from('user_tables')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (tablesError) {
+        console.error('Error checking user tables:', tablesError);
+      } else {
+        console.log(`Found ${tables?.length || 0} tables for user:`, tables);
+        
+        for (const table of tables || []) {
+          const { data: requisitions, error: reqError } = await this.supabase
+            .from('material_requisitions')
+            .select('*, materials:material_requisition_materials(*)')
+            .eq('table_id', table.id)
+            .eq('user_id', userId);
+
+          if (reqError) {
+            console.error(`Error checking requisitions for table ${table.name}:`, reqError);
+          } else {
+            console.log(`Found ${requisitions?.length || 0} requisitions for table ${table.name}:`, requisitions);
+          }
         }
       }
+    } catch (error) {
+      console.error('Debug check error:', error);
     }
-  } catch (error) {
-    console.error('Debug check error:', error);
   }
 }
-}
-

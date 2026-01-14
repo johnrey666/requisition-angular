@@ -10,104 +10,96 @@ import { DatabaseService } from '../services/database.service';
   imports: [CommonModule, RouterModule, FormsModule],
   template: `
     <div class="sidebar">
-      <div class="sidebar-header">
-        <div class="app-icon">
-          <i class="fas fa-industry"></i>
-        </div>
+      <!-- Header -->
+      <div class="header">
+        <div class="app-icon">📦</div>
         <div class="header-content">
-          <h2>Material Portal</h2>
+          <div class="app-title">E-Material Portal</div>
           @if (isAdmin) {
-            <button class="add-user-btn" (click)="showAddUserModal = true" title="Add User">
-              <i class="fas fa-user-plus"></i>
+            <button class="add-user" (click)="showAddUserModal = true" title="Add User">
+              <span>+</span>
             </button>
           }
         </div>
       </div>
       
-      <nav class="sidebar-nav">
+      <!-- Navigation -->
+      <nav class="nav">
         <ul>
           <li>
             <a routerLink="/dashboard" routerLinkActive="active" class="nav-link">
-              <i class="fas fa-tachometer-alt"></i>
-              <span>Dashboard</span>
-              <span class="active-indicator"></span>
+              <span class="nav-icon">📊</span>
+              <span class="nav-text">Dashboard</span>
             </a>
           </li>
           <li>
             <a routerLink="/daily-production" routerLinkActive="active" class="nav-link">
-              <i class="fas fa-industry"></i>
-              <span>Daily Production</span>
-              <span class="active-indicator"></span>
+              <span class="nav-icon">🏭</span>
+              <span class="nav-text">Daily Production</span>
             </a>
           </li>
           <li>
             <a routerLink="/raw-material-requisition" routerLinkActive="active" class="nav-link">
-              <i class="fas fa-clipboard-list"></i>
-              <span>Material Requisition</span>
-              <span class="active-indicator"></span>
+              <span class="nav-icon">📝</span>
+              <span class="nav-text">Material Requisition</span>
             </a>
           </li>
           <li>
             <a routerLink="/usage-report" routerLinkActive="active" class="nav-link">
-              <i class="fas fa-chart-bar"></i>
-              <span>Usage Report</span>
-              <span class="active-indicator"></span>
+              <span class="nav-icon">📈</span>
+              <span class="nav-text">Usage Report</span>
             </a>
           </li>
         </ul>
       </nav>
       
-      <div class="sidebar-footer">
-        <button class="logout-btn" (click)="logout()">
-          <i class="fas fa-sign-out-alt"></i>
-          <span>Logout</span>
+      <!-- Footer -->
+      <div class="footer">
+        <button class="logout" (click)="logout()">
+          <span class="logout-icon">↪</span>
+          <span class="logout-text">Logout</span>
         </button>
       </div>
     </div>
 
     <!-- Add User Modal -->
     @if (showAddUserModal && isAdmin) {
-      <div class="modal-overlay" (click)="closeAddUserModal()">
+      <div class="modal" (click)="closeAddUserModal()">
         <div class="modal-content" (click)="$event.stopPropagation()">
           <div class="modal-header">
-            <h3><i class="fas fa-user-plus"></i> Add New User</h3>
-            <button class="modal-close" (click)="closeAddUserModal()">
-              <i class="fas fa-times"></i>
-            </button>
+            <h3>Add New User</h3>
+            <button class="modal-close" (click)="closeAddUserModal()">×</button>
           </div>
           <div class="modal-body">
-            <div class="add-user-form">
-              <!-- Full Name (full width) -->
-              <div class="form-group full-width">
-                <label>Full Name *</label>
+            <div class="form">
+              <div class="form-group">
+                <label>Full Name</label>
                 <input type="text" [(ngModel)]="newUser.full_name" 
-                       class="form-input" placeholder="Enter full name">
+                       class="input" placeholder="Enter full name">
               </div>
               
-              <!-- Username & Email (side by side) -->
               <div class="form-row">
                 <div class="form-group">
-                  <label>Username *</label>
+                  <label>Username</label>
                   <input type="text" [(ngModel)]="newUser.username" 
-                         class="form-input" placeholder="Enter username">
+                         class="input" placeholder="Enter username">
                 </div>
                 <div class="form-group">
-                  <label>Email *</label>
+                  <label>Email</label>
                   <input type="email" [(ngModel)]="newUser.email" 
-                         class="form-input" placeholder="Enter email">
+                         class="input" placeholder="Enter email">
                 </div>
               </div>
               
-              <!-- Password & Role (side by side) -->
               <div class="form-row">
                 <div class="form-group">
-                  <label>Password *</label>
+                  <label>Password</label>
                   <input type="password" [(ngModel)]="newUser.password" 
-                         class="form-input" placeholder="Enter password">
+                         class="input" placeholder="Enter password">
                 </div>
                 <div class="form-group">
-                  <label>Role *</label>
-                  <select [(ngModel)]="newUser.role" class="form-select">
+                  <label>Role</label>
+                  <select [(ngModel)]="newUser.role" class="select">
                     <option value="user">Standard User</option>
                     <option value="admin">Administrator</option>
                   </select>
@@ -115,14 +107,10 @@ import { DatabaseService } from '../services/database.service';
               </div>
               
               <div class="form-actions">
-                <button class="btn-sm btn-danger" (click)="closeAddUserModal()">Cancel</button>
-                <button class="btn-sm btn-primary create-user-btn" (click)="createNewUser()" 
+                <button class="btn cancel" (click)="closeAddUserModal()">Cancel</button>
+                <button class="btn primary" (click)="createNewUser()" 
                         [disabled]="!isNewUserFormValid() || isCreatingUser">
-                  @if (!isCreatingUser) {
-                    <span>Create User</span>
-                  } @else {
-                    <span>Creating...</span>
-                  }
+                  {{ isCreatingUser ? 'Creating...' : 'Create User' }}
                 </button>
               </div>
             </div>
@@ -132,27 +120,49 @@ import { DatabaseService } from '../services/database.service';
     }
   `,
   styles: [`
+    /* Variables */
+    :host {
+      --bg: #ffffff;
+      --border: #e0e0e0;
+      --text: #212121;
+      --text-light: #757575;
+      --primary: #2196f3;
+      --surface: #ffffff;
+      --radius: 8px;
+    }
+
+    /* Sidebar */
     .sidebar {
       width: 200px;
       height: 100vh;
-      background: #ffffff;
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
       position: fixed;
       left: 0;
       top: 0;
-      overflow-y: auto;
-      box-shadow: 1px 0 8px rgba(0, 0, 0, 0.04);
-      border-right: 1px solid #f0f0f0;
-      display: flex;
-      flex-direction: column;
       z-index: 100;
     }
 
-    .sidebar-header {
-      padding: 24px 16px;
-      border-bottom: 1px solid #f5f5f5;
+    /* Header */
+    .header {
+      padding: 20px 16px;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 12px;
+    }
+
+    .app-icon {
+      font-size: 20px;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f5;
+      border-radius: var(--radius);
     }
 
     .header-content {
@@ -162,192 +172,114 @@ import { DatabaseService } from '../services/database.service';
       justify-content: space-between;
     }
 
-    .app-icon {
-      width: 32px;
-      height: 32px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .app-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .add-user {
+      width: 24px;
+      height: 24px;
+      background: var(--primary);
       color: white;
-      font-size: 14px;
-    }
-
-    .sidebar-header h2 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: #333;
-      letter-spacing: -0.3px;
-    }
-
-    .add-user-btn {
-      width: 28px;
-      height: 28px;
-      background: #667eea;
       border: none;
-      border-radius: 6px;
-      color: white;
+      border-radius: 4px;
+      font-size: 14px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.2s ease;
-      font-size: 12px;
     }
 
-    .add-user-btn:hover {
-      background: #5a67d8;
-      transform: scale(1.05);
+    .add-user:hover {
+      background: #1976d2;
     }
 
-    .sidebar-nav {
-      padding: 16px 0;
+    /* Navigation */
+    .nav {
       flex: 1;
+      padding: 16px 0;
     }
 
-    .sidebar-nav ul {
+    .nav ul {
       list-style: none;
       padding: 0;
       margin: 0;
     }
 
-    .sidebar-nav li {
+    .nav li {
       margin: 2px 0;
-      position: relative;
     }
 
     .nav-link {
       display: flex;
       align-items: center;
       padding: 10px 16px;
-      color: #666;
+      color: var(--text-light);
       text-decoration: none;
-      transition: all 0.2s ease;
-      position: relative;
-      border-radius: 0;
-      font-size: 14px;
-    }
-
-    .nav-link:hover {
-      background: #f8f9fa;
-      color: #333;
-    }
-
-    .nav-link:hover i {
-      color: #667eea;
-    }
-
-    .nav-link.active {
-      background: #f8f9fa;
-      color: #667eea;
-      font-weight: 500;
-    }
-
-    .nav-link.active i {
-      color: #667eea;
-    }
-
-    .nav-link i {
-      margin-right: 12px;
-      width: 18px;
-      text-align: center;
-      font-size: 14px;
-      color: #888;
-      transition: color 0.2s ease;
-    }
-
-    .active-indicator {
-      position: absolute;
-      right: 8px;
-      width: 4px;
-      height: 4px;
-      background: #667eea;
-      border-radius: 50%;
-      opacity: 0;
-      transition: opacity 0.2s ease;
-    }
-
-    .nav-link.active .active-indicator {
-      opacity: 1;
-    }
-
-    .sidebar-footer {
-      padding: 16px;
-      border-top: 1px solid #f5f5f5;
-      background: #fafafa;
-    }
-
-    .logout-btn {
-      width: 100%;
-      padding: 10px;
-      background: transparent;
-      border: 1px solid #e0e0e0;
-      color: #666;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .logout-btn:hover {
-      background: #fff;
-      border-color: #ddd;
-      color: #333;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-
-    .logout-btn i {
-      margin-right: 8px;
+      transition: all 0.2s;
       font-size: 13px;
     }
 
-    /* Scrollbar styling */
-    .sidebar::-webkit-scrollbar {
-      width: 4px;
+    .nav-link:hover {
+      background: #f5f5f5;
+      color: var(--text);
     }
 
-    .sidebar::-webkit-scrollbar-track {
-      background: #f1f1f1;
+    .nav-link.active {
+      background: #f5f5f5;
+      color: var(--primary);
+      font-weight: 500;
     }
 
-    .sidebar::-webkit-scrollbar-thumb {
-      background: #ddd;
-      border-radius: 2px;
+    .nav-icon {
+      font-size: 14px;
+      margin-right: 12px;
+      width: 16px;
+      text-align: center;
     }
 
-    .sidebar::-webkit-scrollbar-thumb:hover {
-      background: #ccc;
+    .nav-text {
+      flex: 1;
     }
 
-    /* Small screen adjustments */
-    @media (max-width: 768px) {
-      .sidebar {
-        width: 180px;
-      }
-      
-      .sidebar-header {
-        padding: 20px 16px;
-      }
-      
-      .sidebar-header h2 {
-        font-size: 15px;
-      }
+    /* Footer */
+    .footer {
+      padding: 16px;
+      border-top: 1px solid var(--border);
     }
 
-    /* Modal Styles */
-    .modal-overlay {
+    .logout {
+      width: 100%;
+      padding: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logout:hover {
+      border-color: var(--text-light);
+    }
+
+    .logout-icon {
+      font-size: 12px;
+    }
+
+    /* Modal */
+    .modal {
       position: fixed;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(0, 0, 0, 0.3);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -355,18 +287,18 @@ import { DatabaseService } from '../services/database.service';
     }
 
     .modal-content {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-      max-width: 500px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       width: 90%;
+      max-width: 400px;
       max-height: 90vh;
       overflow-y: auto;
     }
 
     .modal-header {
-      padding: 20px 24px;
-      border-bottom: 1px solid #e5e7eb;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -374,114 +306,166 @@ import { DatabaseService } from '../services/database.service';
 
     .modal-header h3 {
       margin: 0;
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 600;
-      color: #111827;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      color: var(--text);
     }
 
     .modal-close {
       background: none;
       border: none;
-      font-size: 20px;
-      color: #6b7280;
+      font-size: 18px;
+      color: var(--text-light);
       cursor: pointer;
-      padding: 4px;
-      border-radius: 4px;
-      transition: all 0.2s;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .modal-close:hover {
-      background: #f3f4f6;
-      color: #374151;
+      color: var(--text);
     }
 
     .modal-body {
-      padding: 24px;
+      padding: 16px;
     }
 
-    .add-user-form {
+    /* Form */
+    .form {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
     }
 
     .form-group {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-    }
-
-    .form-group.full-width {
-      width: 100%;
+      gap: 4px;
     }
 
     .form-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      gap: 12px;
     }
 
-    .form-group label {
-      font-size: 14px;
+    label {
+      font-size: 12px;
+      color: var(--text);
       font-weight: 500;
-      color: #374151;
     }
 
-    .form-input, .form-select {
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: border-color 0.2s;
+    .input, .select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
+      background: var(--surface);
+      color: var(--text);
     }
 
-    .form-input:focus, .form-select:focus {
+    .input:focus, .select:focus {
       outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      border-color: var(--primary);
     }
 
     .form-actions {
       display: flex;
-      gap: 12px;
+      gap: 8px;
       justify-content: flex-end;
       margin-top: 8px;
     }
 
-    .btn-sm {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 500;
+    .btn {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
       cursor: pointer;
-      transition: all 0.2s;
+      background: var(--surface);
+      color: var(--text);
     }
 
-    .btn-primary {
-      background: #667eea;
-      color: white;
+    .btn:hover:not(:disabled) {
+      border-color: var(--text-light);
     }
 
-    .btn-primary:hover:not(:disabled) {
-      background: #5a67d8;
-    }
-
-    .btn-primary:disabled {
-      background: #d1d5db;
+    .btn:disabled {
+      opacity: 0.5;
       cursor: not-allowed;
     }
 
-    .btn-danger {
-      background: #ef4444;
+    .btn.primary {
+      background: var(--primary);
       color: white;
+      border-color: var(--primary);
     }
 
-    .btn-danger:hover {
-      background: #dc2626;
+    .btn.primary:hover:not(:disabled) {
+      background: #1976d2;
+    }
+
+    .cancel {
+      background: #f5f5f5;
+    }
+
+    .cancel:hover {
+      background: #eee;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar {
+        width: 180px;
+      }
+      
+      .header {
+        padding: 16px 12px;
+      }
+      
+      .nav-link {
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+      
+      .nav-icon {
+        font-size: 12px;
+        margin-right: 10px;
+      }
+      
+      .footer {
+        padding: 12px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .sidebar {
+        width: 160px;
+      }
+      
+      .app-title {
+        font-size: 12px;
+      }
+      
+      .nav-text {
+        display: none;
+      }
+      
+      .nav-icon {
+        margin-right: 0;
+        font-size: 16px;
+      }
+      
+      .logout-text {
+        display: none;
+      }
+      
+      .logout-icon {
+        margin-right: 0;
+      }
     }
   `]
 })

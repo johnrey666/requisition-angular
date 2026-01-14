@@ -23,10 +23,7 @@ export class DashboardComponent implements OnInit {
     pendingApprovals: 0,
     approvedTables: 0,
     rejectedTables: 0,
-    totalUsers: 0,
-    activeUsers: 0,
-    totalRequisitions: 0,
-    completedRequisitions: 0
+    totalUsers: 0
   };
 
   statCards: StatCard[] = [];
@@ -34,7 +31,7 @@ export class DashboardComponent implements OnInit {
   dataLoaded = false;
   
   currentDate = new Date().toLocaleDateString('en-US', {
-    month: 'long',
+    month: 'short',
     day: 'numeric',
     year: 'numeric'
   });
@@ -123,19 +120,6 @@ export class DashboardComponent implements OnInit {
 
       if (!usersError && users && Array.isArray(users)) {
         this.reportData.totalUsers = users.length;
-        
-        this.reportData.activeUsers = users.filter(u => {
-          if (u.is_active !== undefined) return u.is_active;
-          if (u.active !== undefined) return u.active;
-          if (u.status !== undefined) return u.status === 'active';
-          return false;
-        }).length;
-      }
-
-      // Set default values for requisitions if not available
-      if (this.reportData.totalRequisitions === 0) {
-        this.reportData.totalRequisitions = 89;
-        this.reportData.completedRequisitions = 67;
       }
       
     } catch (error) {
@@ -149,10 +133,7 @@ export class DashboardComponent implements OnInit {
       pendingApprovals: 24,
       approvedTables: 112,
       rejectedTables: 20,
-      totalUsers: 48,
-      activeUsers: 32,
-      totalRequisitions: 89,
-      completedRequisitions: 67
+      totalUsers: 48
     };
   }
 
@@ -204,34 +185,6 @@ export class DashboardComponent implements OnInit {
         icon: '❌',
         color: 'red',
         description: 'Rejected tables'
-      },
-      {
-        title: 'Total Users',
-        value: this.reportData.totalUsers,
-        icon: '👥',
-        color: 'purple',
-        description: 'Registered users'
-      },
-      {
-        title: 'Active Users',
-        value: this.reportData.activeUsers,
-        icon: '👤',
-        color: 'blue',
-        description: 'Currently active'
-      },
-      {
-        title: 'Requisitions',
-        value: this.reportData.totalRequisitions,
-        icon: '📝',
-        color: 'green',
-        description: 'Total requests'
-      },
-      {
-        title: 'Completed',
-        value: this.reportData.completedRequisitions,
-        icon: '✓✓',
-        color: 'purple',
-        description: 'Processed requests'
       }
     ];
   }
